@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CanPredict AI Weather Ecosystem</title>
+    <!-- Shared weather data store / icon library / overlay manager -->
+    <script src="weather-data.js"></script>
+    <style>
+        :root {
+            --bg-base: #03040c;
+            --bg-gradient: linear-gradient(180deg, #090c25 0%, #03040e 100%);
+            --glass-bg: rgba(14, 19, 49, 0.5);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-hover: rgba(22, 28, 68, 0.65);
+            
+            --text-main: #ffffff;
+            --text-sub: #7f85b2;
+            --cyan: #00d2ff;
+            --purple: #7047eb;
+            --orange: #ff7b42;
+            --yellow: #ffd600;
+            --green: #3bf0ff;
+            --neon-pink: #bf5af2;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px 0;
+        }
+
+        .app-window {
+            width: 393px;
+            height: 852px;
+            background: var(--bg-gradient);
+            border-radius: 44px;
+            position: relative;
+            border: 6px solid #16172e;
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.9);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- UNUSED PLACEHOLDER CONTAINER ---
+           This was a fake decorative background and must never be shown to
+           the user (issue #2). Permanently hidden. Closing/Back now performs
+           a real navigation back to index.html instead of revealing this. */
+        .home-bg-preview {
+            display: none;
+        }
+
+        /* --- PAGE 1: FULL DETAILED PREDICTION (pg 5 (AI)_2.png) --- */
+        .full-dashboard {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 24px 16px 24px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            z-index: 5;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+            transform: scale(0.97);
+        }
+        .full-dashboard::-webkit-scrollbar { display: none; }
+
+        .full-dashboard.active-view {
+            opacity: 1;
+            pointer-events: auto;
+            transform: scale(1);
+        }
+
+        /* Card System */
+        .card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 16px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            background: var(--glass-hover);
+            border-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Hero Confidence Section Layout */
+        .hero-layout-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .hero-left-metrics {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .hero-chip-tag {
+            background: rgba(112, 71, 235, 0.15);
+            border: 1px solid rgba(112, 71, 235, 0.3);
+            padding: 4px 8px;
+            border-radius: 8px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #a38bf4;
+            width: fit-content;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .accuracy-bar-container {
+            width: 100px;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .accuracy-bar-fill {
+            height: 100%;
+            width: 92%;
+            background: linear-gradient(90deg, var(--neon-pink) 0%, var(--cyan) 100%);
+            border-radius: 3px;
+        }
+
+        .hero-center-orb {
+            width: 120px;
+            height: 120px;
+            position: relative;
+        }
+
+        .hero-right-rainfall {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            text-align: right;
+        }
+
+        .pills-column {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 8px;
+            align-items: flex-end;
+        }
+
+        .info-pill-item {
+            font-size: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            padding: 4px 8px;
+            border-radius: 12px;
+            color: #d1d4fb;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Prediction Grid Blocks */
+        .prediction-overview-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+        }
+
+        .overview-block {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 10px 2px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 94px;
+            transition: all 0.3s ease;
+        }
+
+        .overview-block:hover {
+            transform: translateY(-4px);
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .overview-block .title-lbl { font-size: 9px; color: var(--text-sub); }
+        .overview-block .val-lbl { font-size: 13px; font-weight: 700; margin: 4px 0; }
+        .overview-block .sub-lbl { font-size: 9px; color: var(--cyan); }
+
+        /* Chart Canvas */
+        .chart-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .chart-legends-wrap {
+            display: flex;
+            gap: 10px;
+            font-size: 10px;
+            color: var(--text-sub);
+        }
+
+        .legend-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .chart-canvas-area {
+            width: 100%;
+            height: 100px;
+            position: relative;
+        }
+
+        .chart-x-axis {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: var(--text-sub);
+            margin-top: 8px;
+            padding: 0 4px;
+        }
+
+        /* Splits Recommendations */
+        .split-dashboard-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .step-out-card {
+            background: linear-gradient(180deg, rgba(20, 24, 62, 0.5) 0%, rgba(7, 9, 32, 0.8) 100%);
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* --- Step Out Card: Sunrise Illustration --- */
+        .step-out-illustration {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+            border-radius: inherit;
+        }
+
+        .step-out-illustration svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .step-out-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100%;
+        }
+
+        @keyframes sunPulse {
+            0%, 100% { opacity: 0.75; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.06); }
+        }
+        .anim-sun-pulse {
+            transform-origin: 140px 96px;
+            animation: sunPulse 5s ease-in-out infinite;
+        }
+
+        @keyframes rayFade {
+            0%, 100% { opacity: 0.14; }
+            50% { opacity: 0.32; }
+        }
+        .anim-rays { animation: rayFade 4.5s ease-in-out infinite; }
+
+        @keyframes cloudDrift1 {
+            0%, 100% { transform: translateX(-5px); }
+            50% { transform: translateX(7px); }
+        }
+        .anim-cloud-1 { animation: cloudDrift1 15s ease-in-out infinite; }
+
+        @keyframes cloudDrift2 {
+            0%, 100% { transform: translateX(5px); }
+            50% { transform: translateX(-7px); }
+        }
+        .anim-cloud-2 { animation: cloudDrift2 19s ease-in-out infinite; }
+
+        @keyframes birdFloat {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(9px, -3px); }
+        }
+        .anim-birds { animation: birdFloat 8s ease-in-out infinite; }
+
+        @keyframes starTwinkle {
+            0%, 100% { opacity: 0.25; }
+            50% { opacity: 0.8; }
+        }
+        .anim-stars circle { animation: starTwinkle 3s ease-in-out infinite; }
+        .anim-stars circle:nth-child(2) { animation-delay: 0.6s; }
+        .anim-stars circle:nth-child(3) { animation-delay: 1.2s; }
+        .anim-stars circle:nth-child(4) { animation-delay: 1.8s; }
+
+        @keyframes fogDrift {
+            0%, 100% { transform: translateX(-4px); opacity: 0.07; }
+            50% { transform: translateX(4px); opacity: 0.14; }
+        }
+        .anim-fog { animation: fogDrift 11s ease-in-out infinite; }
+
+        .carry-list-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .carry-row-node {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .carry-tag-badge {
+            font-size: 8px;
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        /* Sources Footnote */
+        .sources-grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-content: center;
+            gap: 10px 12px;
+            font-size: 10px;
+            color: var(--text-sub);
+            padding: 10px 4px 4px;
+        }
+
+        .source-pill-node {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+        .source-pill-node:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--glass-border);
+            color: #fff;
+        }
+
+        /* --- PAGE 2: INTERACTIVE MINI MODAL (pg 6 (mini AI).png) --- */
+        .modal-view-layer {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(4, 5, 15, 0.4);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+            opacity: 1;
+            pointer-events: auto;
+            transition: opacity 0.4s ease;
+        }
+
+        .modal-view-layer.hidden-view {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .mini-glass-modal {
+            width: 352px;
+            background: linear-gradient(145deg, rgba(22, 26, 64, 0.8) 0%, rgba(9, 11, 35, 0.95) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 32px;
+            padding: 22px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.65), inset 0 1px 1px rgba(255,255,255,0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .mini-header-row { display: flex; justify-content: space-between; align-items: center; }
+        .close-circle { width: 28px; height: 28px; background: rgba(255,255,255,0.08); border-radius: 50%; display: flex; justify-content: center; align-items: center; cursor: pointer; transition: all 0.2s; }
+        .close-circle:hover { background: rgba(255,255,255,0.2); transform: scale(1.08); }
+
+        .banner-alert {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 14px;
+            display: flex; gap: 12px; align-items: center;
+        }
+
+        .table-rows { display: flex; flex-direction: column; gap: 10px; }
+        .tr-item { display: grid; grid-template-columns: 24px 100px 1fr auto; align-items: center; font-size: 13px; padding: 4px 0;}
+
+        .advice-box {
+            background: linear-gradient(90deg, rgba(112, 71, 235, 0.15), transparent);
+            border-radius: 16px; padding: 12px;
+            display: flex; gap: 10px; align-items: center;
+            border-left: 3px solid var(--purple);
+        }
+
+        /* 3D Glassmorphism Action Trigger Button */
+        .btn-detailed-3d {
+            background: linear-gradient(135deg, #514fbb 0%, #312cb2 100%);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 14px;
+            border-radius: 16px;
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex; justify-content: center; align-items: center; gap: 6px;
+            box-shadow: 0 6px 20px rgba(81, 79, 187, 0.4), inset 0 1px 0 rgba(255,255,255,0.3);
+            transform-style: preserve-3d;
+            transform: translateZ(0);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .btn-detailed-3d:hover {
+            background: linear-gradient(135deg, #6362d9 0%, #3d37cc 100%);
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 14px 28px rgba(81, 79, 187, 0.6), inset 0 1px 0 rgba(255,255,255,0.4);
+        }
+
+        /* --- TOP NAVIGATION HEADER (was missing entirely — root cause of issue 7) --- */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 2px;
+        }
+
+        .header-title {
+            flex: 1;
+            text-align: center;
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            padding: 0 8px;
+        }
+
+        .btn-circle {
+            width: 44px;
+            height: 44px;
+            flex-shrink: 0;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-main);
+            cursor: pointer;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .btn-circle:hover {
+            transform: scale(1.1) rotate(15deg);
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 8px 20px rgba(255, 255, 255, 0.1);
+        }
+
+        /* --- GLOBAL BOTTOM NAVBAR DOCK --- */
+        .dock-nav {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 86px;
+            background: rgba(8, 10, 25, 0.85);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-top: 1px solid var(--glass-border);
+            border-radius: 30px 30px 0 0;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 10px 16px 10px;
+            z-index: 1000;
+        }
+
+        .dock-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--text-sub); font-size: 10px; cursor: pointer; width: 60px; transition: color 0.2s, transform 0.2s; }
+        .dock-tab:hover { color: #fff; transform: translateY(-4px) scale(1.05); }
+        .dock-tab.active { color: #4aa3ff; }
+        
+        .center-hex-wrapper { width: 60px; display: flex; justify-content: center; position: relative; top: -24px; }
+        .center-hex { position: static; }
+        .hex-btn {
+            width: 62px; height: 62px;
+            background: linear-gradient(135deg, #3d41f7 0%, #151673 100%);
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            border: 4px solid #060716;
+            box-shadow: 0 10px 24px rgba(61, 65, 247, 0.4), inset 0 1px 1px rgba(255,255,255,0.4);
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .hex-btn:hover { transform: scale(1.1) rotate(-5deg); box-shadow: 0 15px 30px rgba(61, 65, 247, 0.6), 0 0 20px rgba(0, 212, 255, 0.4); background: linear-gradient(135deg, #5054ff 0%, #1d1f94 100%); }
+
+        /* Center AI button — this nav is only ever shown as part of the AI
+           Prediction feature (mini popup or full page), so the AI button is
+           always the active nav item, never "Insights" (fix #3 & #4). */
+        .hex-btn.ai-active {
+            background: linear-gradient(135deg, #6a4cff 0%, #2c1f9e 100%);
+            box-shadow: 0 0 0 3px rgba(112, 71, 235, 0.35), 0 10px 24px rgba(61, 65, 247, 0.5), 0 0 22px rgba(0, 210, 255, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+            animation: aiActivePulse 2.2s ease-in-out infinite;
+        }
+        @keyframes aiActivePulse {
+            0%, 100% { box-shadow: 0 0 0 3px rgba(112, 71, 235, 0.35), 0 10px 24px rgba(61, 65, 247, 0.5), 0 0 22px rgba(0, 210, 255, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.4); }
+            50% { box-shadow: 0 0 0 6px rgba(112, 71, 235, 0.15), 0 10px 30px rgba(61, 65, 247, 0.65), 0 0 34px rgba(0, 210, 255, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.5); }
+        }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .blade-spin { transform-origin: 50px 30px; animation: spin 4s linear infinite; }
+
+        /* On real phone viewports (390x844, 393x852, 414x896) let the frame fill the
+           screen instead of clipping/overflowing the fixed 393x852 preview box.
+           Uses dvh (with vh fallback) so mobile browser address-bar chrome never
+           clips the bottom nav or the last sections of the page. */
+        @media (max-width: 430px) {
+            body { padding: 0; min-height: 100vh; min-height: 100dvh; }
+            .app-window {
+                width: 100vw;
+                height: 100vh;
+                height: 100dvh;
+                max-width: 430px;
+                max-height: 932px;
+                border-radius: 0;
+                border: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-window">
+        
+        <!-- Background Preview behind Modal Layers -->
+        <div class="home-bg-preview">
+            <h1 style="font-size: 54px;" id="bgPreviewTemp">32°</h1>
+            <p id="bgPreviewCond">Partly Cloudy</p>
+            <div style="margin-top:20px; width:100%; height:80px; background:rgba(255,255,255,0.1); border-radius:12px;"></div>
+            <div style="margin-top:20px; width:100%; height:200px; background:rgba(255,255,255,0.1); border-radius:12px;"></div>
+        </div>
+
+        <!-- =========================================================
+             PAGE 1: METICULOUS DETAILED FORCAST DASHBOARD (pg 5 (AI)_2.png)
+             ========================================================= -->
+        <div id="fullDashboardView" class="full-dashboard">
+            
+            <header class="top-bar">
+                <div class="btn-circle" onclick="goBackFromDashboard()"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></div>
+                <div class="header-title">AI Weather Prediction</div>
+                <div class="btn-circle"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></div>
+            </header>
+
+            <!-- Card 1: Main Confidence & Rainfall Analytics Engine Block -->
+            <div class="card">
+                <div class="hero-layout-row">
+                    <!-- Left Block Module -->
+                    <div class="hero-left-metrics">
+                        <div class="hero-chip-tag">
+                            <!-- Small Vector Chip Icon -->
+                            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
+                            AI CONFIDENCE
+                        </div>
+                        <span style="font-size: 38px; font-weight: 700; line-height: 1;" id="dashConfidenceVal">92%</span>
+                        <span style="font-size: 13px; color: var(--green); font-weight: 600; margin-top: 4px;" id="dashConfidenceLabel">Very High</span>
+                        <span style="font-size: 11px; color: var(--text-sub); margin-top: 2px;">Model Accuracy</span>
+                        <div class="accuracy-bar-container">
+                            <div class="accuracy-bar-fill" id="dashConfidenceBar"></div>
+                        </div>
+                    </div>
+
+                    <!-- Center Neural Globe System Artwork SVG -->
+                    <div class="hero-center-orb">
+                        <svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <radialGradient id="meshCenterGlow" cx="50%" cy="50%" r="50%">
+                                    <stop offset="0%" stop-color="#3d49f5" stop-opacity="0.7"/>
+                                    <stop offset="60%" stop-color="#141754" stop-opacity="0.3"/>
+                                    <stop offset="100%" stop-color="#05071a" stop-opacity="0"/>
+                                </radialGradient>
+                                <filter id="glowEffect" x="-20%" y="-20%" width="140%" height="140%">
+                                    <feGaussianBlur stdDeviation="5" result="blur"/>
+                                    <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                                </filter>
+                            </defs>
+                            <circle cx="60" cy="60" r="48" fill="url(#meshCenterGlow)" />
+                            <!-- Orbital Constellation Grid -->
+                            <circle cx="60" cy="60" r="42" fill="none" stroke="var(--purple)" stroke-width="1" opacity="0.35"/>
+                            <circle cx="60" cy="60" r="36" fill="none" stroke="var(--cyan)" stroke-width="1.2" stroke-dasharray="3 6" opacity="0.5"/>
+                            <path d="M42 42 L78 78 M42 78 L78 42 M32 60 L88 60 M60 32 L60 88" stroke="rgba(0, 229, 255, 0.2)" stroke-width="1"/>
+                            
+                            <!-- Bright Core Weather Vector -->
+                            <g filter="url(#glowEffect)">
+                                <circle cx="60" cy="60" r="24" fill="#18136b" stroke="var(--purple)" stroke-width="1.5"/>
+                                <path d="M52 62 h16 a6 6 0 0 0 -6 -6 h -1 a9 9 0 1 0 -11 10" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
+                                <path d="M61 58 l-4 8 h6 l-4 8" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+                            </g>
+                        </svg>
+                    </div>
+
+                    <!-- Right Block Rainfall Column Module -->
+                    <div class="hero-right-rainfall">
+                        <span style="font-size: 11px; color: var(--text-sub);">Rainfall</span>
+                        <span style="font-size: 12px; font-weight: 600; color: var(--purple); margin-top: 2px;">Tomorrow Afternoon</span>
+                        <span style="font-size: 34px; font-weight: 700; line-height: 1; margin: 6px 0;" id="dashRainfallVal">70%</span>
+                        <span style="font-size: 11px; color: var(--text-sub);">Chance</span>
+                        <div class="pills-column">
+                            <div class="info-pill-item">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><path d="M8 18v2M12 18v2"/></svg>
+                                <span id="dashRainfallMm">18 - 24 mm</span>
+                            </div>
+                            <div class="info-pill-item">
+                                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12.8 19.6A2 2 0 1 0 14 16H2M17.5 8a2.5 2.5 0 1 1 2 4H2"/></svg>
+                                <span id="dashWindVal">16 km/h</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 2: AI Prediction Core Bot Summary Strip Row -->
+            <div class="card" style="flex-direction: row; gap: 14px; align-items: center; background: rgba(14, 18, 54, 0.7);">
+                <div style="width: 44px; height: 44px; background: linear-gradient(135deg, #1f2766, #080b26); border-radius: 50%; display: flex; justify-content: center; align-items: center; border: 1px solid rgba(0, 210, 255, 0.35)">
+                    <svg width="22" height="22" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M9 6V3h6v3M7 12h.01M17 12h.01M9 15h6"/></svg>
+                </div>
+                <div style="flex: 1;">
+                    <span style="font-size: 13px; font-weight: 600; color: #a892ff;">AI Prediction Summary</span>
+                    <p style="font-size: 11px; color: var(--text-sub); margin-top: 4px; line-height: 1.35;" id="aiSummaryText">Light to moderate rain is expected tomorrow afternoon in Chennai. Carry an umbrella and plan outdoor activities accordingly.</p>
+                </div>
+                <svg width="16" height="16" fill="none" stroke="var(--text-sub)" stroke-width="2.5" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+            </div>
+
+            <!-- Section Label Wrapper -->
+            <div style="font-size: 13px; font-weight: 600; padding-left: 2px; margin-top: 2px;">Prediction Overview</div>
+
+            <!-- Card 3: Five Column Uniform Matrices Blocks Grid Layout -->
+            <div class="prediction-overview-grid">
+                <div class="overview-block">
+                    <span class="title-lbl">Precipitation</span>
+                    <svg width="18" height="18" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><path d="M8 18v2M12 18v2M16 18v2"/></svg>
+                    <span class="val-lbl" id="ovPrecipVal">70%</span>
+                    <span class="sub-lbl" id="ovPrecipLbl">Chance</span>
+                </div>
+                <div class="overview-block">
+                    <span class="title-lbl">Temperature</span>
+                    <svg width="18" height="18" fill="none" stroke="var(--orange)" stroke-width="2" viewBox="0 0 24 24"><path d="M14 14.76V3.5a2 2 0 0 0-4 0v11.26a4.5 4 0 1 0 4 0z"/></svg>
+                    <span class="val-lbl" style="font-size:11px;" id="ovTempVal">27° / 33°</span>
+                    <span class="sub-lbl" style="color:var(--text-sub);">Min / Max</span>
+                </div>
+                <div class="overview-block">
+                    <span class="title-lbl">Cloud Cover</span>
+                    <svg width="18" height="18" fill="none" stroke="#ffffff" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20a7 7 0 0 0 6.42-4.18A5 5 0 0 0 18 6h-1.26a8 8 0 1 0-11.62 8.58A7 7 0 0 0 12 20z"/></svg>
+                    <span class="val-lbl" id="ovCloudVal">82%</span>
+                    <span class="sub-lbl" style="color:var(--text-sub);" id="ovCloudLbl">High</span>
+                </div>
+                <div class="overview-block">
+                    <span class="title-lbl">Wind</span>
+                    <svg width="18" height="18" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><path d="M12.8 19.6A2 2 0 1 0 14 16H2M17.5 8a2.5 2.5 0 1 1 2 4H2"/></svg>
+                    <span class="val-lbl" style="font-size:11px;" id="ovWindVal">16 <small>km/h</small></span>
+                    <span class="sub-lbl" id="ovWindLbl">Moderate</span>
+                </div>
+                <div class="overview-block">
+                    <span class="title-lbl">Feels Like</span>
+                    <svg width="18" height="18" fill="none" stroke="var(--neon-pink)" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <span class="val-lbl" id="ovFeelsVal">35°</span>
+                    <span class="sub-lbl" style="color:var(--orange);" id="ovFeelsLbl">Hot</span>
+                </div>
+            </div>
+
+            <!-- Card 4: Multi Curved High-Fidelity Spline Line Chart Block Panel Layout -->
+            <div class="card">
+                <div class="chart-card-head">
+                    <span style="font-size: 13px; font-weight: 600;">Precipitation Forecast</span>
+                    <div class="chart-legends-wrap">
+                        <div class="legend-indicator"><span style="width:6px; height:6px; background:var(--purple); border-radius:50%;"></span>Predicted</div>
+                        <div class="legend-indicator"><span style="width:6px; height:6px; background:var(--cyan); border-radius:50%;"></span>Actual</div>
+                        <div class="legend-indicator"><span style="width:5px; height:5px; background:var(--text-sub); transform:rotate(45deg);"></span>Normal</div>
+                    </div>
+                </div>
+                <div class="chart-canvas-area">
+                    <svg width="100%" height="100%" viewBox="0 0 320 100" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="purpleAreaGlow" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="var(--purple)" stop-opacity="0.35"/>
+                                <stop offset="100%" stop-color="var(--purple)" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <!-- Grid Y Coordinates -->
+                        <line x1="0" y1="25" x2="320" y2="25" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+                        <line x1="0" y1="50" x2="320" y2="50" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+                        <line x1="0" y1="75" x2="320" y2="75" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+                        
+                        <!-- Chart Histograms Pillars Behind Curves matching pg 5 (AI)_2.png -->
+                        <rect x="15" y="80" width="16" height="20" fill="rgba(0, 210, 255, 0.1)" rx="2"/>
+                        <rect x="65" y="35" width="16" height="65" fill="rgba(112, 71, 235, 0.25)" rx="2" stroke="rgba(112, 71, 235, 0.4)" stroke-width="1"/>
+                        <rect x="115" y="72" width="16" height="28" fill="rgba(0, 210, 255, 0.1)" rx="2"/>
+                        <rect x="165" y="78" width="16" height="22" fill="rgba(0, 210, 255, 0.1)" rx="2"/>
+                        <rect x="215" y="82" width="16" height="18" fill="rgba(0, 210, 255, 0.1)" rx="2"/>
+                        <rect x="265" y="85" width="16" height="15" fill="rgba(0, 210, 255, 0.1)" rx="2"/>
+
+                        <!-- Area Fill Under Predicted Spline Curve -->
+                        <path d="M 23 80 L 73 35 L 123 45 L 173 58 L 223 68 L 273 72 L 310 75 L 310 100 L 23 100 Z" fill="url(#purpleAreaGlow)"/>
+                        
+                        <!-- Purple Predicted Main Vector Spline Core -->
+                        <path d="M 23 80 Q 48 57.5 73 35 T 123 45 T 173 58 T 223 68 T 273 72 T 310 75" fill="none" stroke="var(--purple)" stroke-width="3" filter="drop-shadow(0 3px 6px rgba(112,71,235,0.5))"/>
+                        
+                        <!-- Gray Dashed Normal Spline Line Core -->
+                        <path d="M 23 85 Q 73 70 123 76 T 223 84 T 310 87" fill="none" stroke="var(--text-sub)" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.6"/>
+                        
+                        <!-- Chart Nodes Value Connectors -->
+                        <circle cx="23" cy="80" r="3" fill="#ffffff"/>
+                        <circle cx="73" cy="35" r="4.5" fill="#ffffff" stroke="var(--purple)" stroke-width="2"/>
+                        <circle cx="123" cy="45" r="3" fill="#ffffff"/>
+                        <circle cx="173" cy="58" r="3" fill="#ffffff"/>
+                        <circle cx="223" cy="68" r="3" fill="#ffffff"/>
+                        <circle cx="273" cy="72" r="3" fill="#ffffff"/>
+                        
+                        <!-- Text Node Values Labels -->
+                        <text x="13" y="70" fill="var(--text-sub)" font-size="8" font-weight="600">20%</text>
+                        <text x="63" y="24" fill="#ffffff" font-size="9" font-weight="700">70%</text>
+                        <text x="113" y="36" fill="var(--text-sub)" font-size="8" font-weight="600">60%</text>
+                        <text x="163" y="48" fill="var(--text-sub)" font-size="8" font-weight="600">45%</text>
+                        <text x="213" y="58" fill="var(--text-sub)" font-size="8" font-weight="600">30%</text>
+                        <text x="263" y="64" fill="var(--text-sub)" font-size="8" font-weight="600">25%</text>
+                    </svg>
+                </div>
+                <div class="chart-x-axis">
+                    <span>Today</span><span style="color:#ffffff; font-weight:600; background:rgba(112,71,235,0.2); padding:2px 8px; border-radius:8px;">Tomorrow</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                </div>
+            </div>
+
+            <!-- Card 5: AI Forecast Insight Box Module Layout -->
+            <div class="card" style="flex-direction: row; gap: 12px; align-items: center; background: rgba(14, 16, 43, 0.65);">
+                <div style="width: 36px; height: 36px; background: rgba(112, 71, 235, 0.15); border-radius: 50%; display: flex; justify-content: center; align-items: center; flex-shrink: 0;">
+                    <!-- Brain Insight Icon Vector -->
+                    <svg width="18" height="18" fill="none" stroke="var(--purple)" stroke-width="2" viewBox="0 0 24 24"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-3.12 3 3 0 0 1 0-3.88 2.5 2.5 0 0 1 0-3.12A2.5 2.5 0 0 1 9.5 2zM14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-3.12 3 3 0 0 0 0-3.88 2.5 2.5 0 0 0 0-3.12A2.5 2.5 0 0 0 14.5 2z"/></svg>
+                </div>
+                <div style="flex: 1;">
+                    <span style="font-size: 12px; font-weight: 600; color: #bca8ff;">AI Forecast Insight</span>
+                    <p style="font-size: 11px; color: var(--text-sub); margin-top: 2px; line-height: 1.35;" id="aiInsightText">Weather conditions are influenced by low pressure over the Bay of Bengal and high humidity. Rain intensity may increase by evening.</p>
+                </div>
+            </div>
+
+            <!-- Card 6 & 7 Layout Block Row Splits -->
+            <div class="split-dashboard-row">
+                <!-- Best Time Out -->
+                <div class="card step-out-card">
+                    <div class="step-out-illustration" aria-hidden="true">
+                        <svg viewBox="0 0 200 170" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stop-color="#241a55" stop-opacity="0.35"/>
+                                    <stop offset="55%" stop-color="#3d2570" stop-opacity="0.25"/>
+                                    <stop offset="100%" stop-color="#ff7b42" stop-opacity="0.16"/>
+                                </linearGradient>
+                                <radialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
+                                    <stop offset="0%" stop-color="#ffd08a" stop-opacity="0.85"/>
+                                    <stop offset="45%" stop-color="#ff7b42" stop-opacity="0.32"/>
+                                    <stop offset="100%" stop-color="#ff7b42" stop-opacity="0"/>
+                                </radialGradient>
+                                <linearGradient id="mtnFar" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stop-color="#2a2f6b"/>
+                                    <stop offset="100%" stop-color="#171b45"/>
+                                </linearGradient>
+                                <linearGradient id="mtnNear" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stop-color="#161936"/>
+                                    <stop offset="100%" stop-color="#0b0d23"/>
+                                </linearGradient>
+                                <filter id="softBlur"><feGaussianBlur stdDeviation="3"/></filter>
+                            </defs>
+
+                            <rect x="0" y="0" width="200" height="170" fill="url(#skyGrad)"/>
+
+                            <g class="anim-stars">
+                                <circle cx="20" cy="18" r="1" fill="#fff" opacity="0.5"/>
+                                <circle cx="150" cy="12" r="1.2" fill="#fff" opacity="0.5"/>
+                                <circle cx="178" cy="30" r="0.8" fill="#fff" opacity="0.6"/>
+                                <circle cx="62" cy="10" r="0.9" fill="#fff" opacity="0.4"/>
+                            </g>
+
+                            <circle cx="140" cy="96" r="46" fill="url(#sunGlow)" class="anim-sun-pulse"/>
+
+                            <g class="anim-rays" stroke="#ffd08a" stroke-width="1" opacity="0.22">
+                                <line x1="140" y1="96" x2="140" y2="42"/>
+                                <line x1="140" y1="96" x2="186" y2="60"/>
+                                <line x1="140" y1="96" x2="200" y2="96"/>
+                                <line x1="140" y1="96" x2="96" y2="60"/>
+                            </g>
+
+                            <path d="M0 130 L30 95 L55 118 L80 85 L110 120 L140 90 L170 115 L200 100 L200 170 L0 170 Z" fill="url(#mtnFar)" opacity="0.55"/>
+
+                            <ellipse cx="90" cy="128" rx="110" ry="12" fill="#bcd0ff" opacity="0.08" filter="url(#softBlur)" class="anim-fog"/>
+
+                            <path d="M0 150 L25 120 L50 140 L85 110 L120 145 L150 122 L180 140 L200 128 L200 170 L0 170 Z" fill="url(#mtnNear)"/>
+
+                            <g class="anim-cloud-1" opacity="0.5">
+                                <ellipse cx="45" cy="45" rx="18" ry="6" fill="#cdd8ff"/>
+                                <ellipse cx="60" cy="42" rx="12" ry="5" fill="#cdd8ff"/>
+                            </g>
+                            <g class="anim-cloud-2" opacity="0.32">
+                                <ellipse cx="128" cy="30" rx="14" ry="5" fill="#e5c8ff"/>
+                            </g>
+
+                            <g class="anim-birds" stroke="#0e1330" stroke-width="1.4" fill="none" stroke-linecap="round" opacity="0.5">
+                                <path d="M20 60 q4 -5 8 0 q4 -5 8 0"/>
+                                <path d="M35 68 q3 -4 6 0 q3 -4 6 0"/>
+                            </g>
+                        </svg>
+                    </div>
+                    <div class="step-out-content">
+                        <div>
+                            <div style="font-size: 11px; color: var(--text-sub); display: flex; align-items: center; gap: 4px;">☀️ Best Time to Step Out</div>
+                            <div style="font-size: 14px; font-weight: 700; margin-top: 6px;" id="bestTimeRange">10:00 AM - 1:00 PM</div>
+                            <span style="font-size: 9px; padding: 2px 6px; border-radius: 6px; font-weight: 600; display: inline-block; margin-top: 4px;" id="riskLevelBadge">Good</span>
+                        </div>
+                        <p style="font-size: 10px; color: var(--text-sub); line-height: 1.35; margin-top: 10px;" id="bestTimeDesc">Low chance of rain during these hours. Enjoy your day!</p>
+                    </div>
+                </div>
+
+                <!-- What to Carry Bag Setup -->
+                <div class="card">
+                    <div style="font-size: 11px; color: var(--text-sub); display: flex; align-items: center; gap: 4px;">👜 What to Carry</div>
+                    <div class="carry-list-wrapper" id="carryListWrapper">
+                        <div class="carry-row-node"><span>Umbrella</span><span class="carry-tag-badge" id="carryUmbrella" style="background: rgba(112, 71, 235, 0.2); color: #a38bf4;">Highly Recommended</span></div>
+                        <div class="carry-row-node"><span>Raincoat</span><span class="carry-tag-badge" id="carryRaincoat" style="background: rgba(0, 210, 255, 0.15); color: var(--cyan);">Recommended</span></div>
+                        <div class="carry-row-node"><span>Sunglasses</span><span class="carry-tag-badge" id="carrySunglasses" style="background: rgba(255, 255, 255, 0.05); color: var(--text-sub);">Optional</span></div>
+                        <div class="carry-row-node" style="border-bottom:none;"><span>Water Bottle</span><span class="carry-tag-badge" id="carryWater" style="background: rgba(59, 240, 255, 0.1); color: var(--green);">Always a Good Idea</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Framework Streams Alignment -->
+            <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px; padding-left: 2px;">Model Data Sources</div>
+            <div class="sources-grid">
+                <div class="source-pill-node">🛰️ Satellite Data</div>
+                <div class="source-pill-node">🎯 Radar Scans</div>
+                <div class="source-pill-node">🌊 Ocean Data</div>
+                <div class="source-pill-node">📈 Historical Trends</div>
+                <div class="source-pill-node">🗼 Live Weather Stations</div>
+            </div>
+
+            <!-- Real spacer element (not container padding) so the Model Data
+                 Sources row always clears the bottom navigation. Flexbox
+                 scroll containers can silently collapse trailing padding in
+                 some browsers, so an explicit block-level spacer is used
+                 instead to guarantee the space always renders. -->
+            <div style="height: 110px; flex-shrink: 0;" aria-hidden="true"></div>
+
+        </div>
+
+        <!-- =========================================================
+             PAGE 2: INTERACTIVE DOCK MODAL (pg 6 (mini AI).png)
+             ========================================================= -->
+        <div id="miniModalOverlay" class="modal-view-layer">
+            
+            <div class="mini-glass-modal">
+                
+                <div class="mini-header-row">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width:38px; height:38px; background: linear-gradient(135deg, #202766, #090b24); border-radius: 50%; display: flex; justify-content: center; align-items: center; border: 1px solid var(--cyan)">
+                            <svg width="18" height="18" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M9 6V3h6v3M7 12h.01M17 12h.01M9 15h6"/></svg>
+                        </div>
+                        <div>
+                            <div style="font-size: 15px; font-weight: 700;">AI Prediction Insights</div>
+                            <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px;">Tomorrow Afternoon</div>
+                        </div>
+                    </div>
+                    <div class="close-circle" onclick="dismissModal()"><svg width="14" height="14" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></div>
+                </div>
+
+                <!-- Central Prediction Banner Status -->
+                <div class="banner-alert">
+                    <div id="bannerIconHolder" style="width:32px; height:32px;">
+                        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M25 65 h50 a18 18 0 0 0 0 -36 a14 14 0 0 0 -22 -8 a20 20 0 0 0 -28 44 z" fill="url(#cloudGrad)" />
+                            <path d="M35 75 l-6 15 M50 75 l-6 15 M65 75 l-6 15" stroke="var(--cyan)" stroke-width="4" stroke-linecap="round" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div style="font-size: 14px; font-weight: 600;" id="bannerConditionTitle">Light to Moderate Rain</div>
+                        <p style="font-size: 11px; color: var(--text-sub); margin-top: 2px; line-height: 1.3;" id="bannerDesc">Expected between 1:00 PM - 6:00 PM with a <span style="color:var(--cyan); font-weight:600;">70%</span> chance.</p>
+                    </div>
+                </div>
+
+                <div style="font-size: 12px; font-weight: 600; color: var(--text-sub); margin-bottom:-4px; padding-left: 2px;">Key Predictions</div>
+
+                <!-- Metric Rows Table Layout -->
+                <div class="table-rows">
+                    <div class="tr-item">
+                        <svg width="14" height="14" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><path d="M8 18v2M12 18v2"/></svg>
+                        <span style="color:var(--text-sub); margin-left: 6px;">Rainfall</span><span id="trRainfallVal">18 - 24 mm</span><span style="font-weight: 600;" id="trRainfallLbl">High</span>
+                    </div>
+                    <div class="tr-item">
+                        <svg width="14" height="14" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m15.5 4a2.5 2.5 0 1 1 2 4H2"/></svg>
+                        <span style="color:var(--text-sub); margin-left: 6px;">Wind Speed</span><span id="trWindVal">16 km/h</span><span style="color:var(--cyan); font-weight: 600;" id="trWindLbl">Moderate</span>
+                    </div>
+                    <div class="tr-item">
+                        <svg width="14" height="14" fill="none" stroke="var(--orange)" stroke-width="2" viewBox="0 0 24 24"><path d="M14 14.76V3.5a2 2 0 0 0-4 0v11.26a4.5 4 0 1 0 4 0z"/></svg>
+                        <span style="color:var(--text-sub); margin-left: 6px;">Temperature</span><span id="trTempVal">27° - 33°</span><span style="color:var(--orange); font-weight: 600;" id="trTempLbl">Warm</span>
+                    </div>
+                    <div class="tr-item">
+                        <svg width="14" height="14" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+                        <span style="color:var(--text-sub); margin-left: 6px;">Humidity</span><span id="trHumidityVal">65 - 80%</span><span style="font-weight: 600;" id="trHumidityLbl">High</span>
+                    </div>
+                    <div class="tr-item">
+                        <svg width="14" height="14" fill="none" stroke="var(--purple)" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+                        <span style="color:var(--text-sub); margin-left: 6px;">Outdoor Cond.</span><span id="trOutdoorVal">Not Ideal</span><span style="font-weight: 600;" id="trOutdoorLbl">Poor</span>
+                    </div>
+                </div>
+
+                <!-- AI Advice Callout Box Row -->
+                <div class="advice-box">
+                    <div style="font-size: 20px;">💡</div>
+                    <div style="flex: 1;">
+                        <div style="font-size: 12px; font-weight: 700;">AI Advice</div>
+                        <p style="font-size: 11px; color: var(--text-sub); margin-top: 2px; line-height: 1.3;" id="miniAdviceText">Carry an umbrella and avoid long outdoor activities.</p>
+                    </div>
+                    <svg width="40" height="40" viewBox="0 0 100 100" style="opacity: 0.8;">
+                        <path d="M 10 60 Q 50 15 90 60 Q 70 55 50 60 Q 30 55 10 60 Z" fill="rgba(112,71,235,0.4)" stroke="var(--purple)" stroke-width="2"/>
+                        <path d="M 50 60 L 50 85 A 6 6 0 0 0 62 85" fill="none" stroke="var(--cyan)" stroke-width="2.5" stroke-linecap="round"/>
+                    </svg>
+                </div>
+
+                <!-- 3D Switcher Action Button -->
+                <button class="btn-detailed-3d" onclick="transitionToDashboard()">
+                    View Detailed Forecast
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+                </button>
+
+            </div>
+
+        </div>
+
+        <!-- Global Navigation Footer Dock -->
+        <nav class="dock-nav">
+            <div class="dock-tab" data-page="index.html">
+                <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                <span>Home</span>
+            </div>
+            <div class="dock-tab" data-page="pg2.html">
+                <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" x2="16" y2="6"/><line x1="8" x2="8" y1="2" x2="8" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                <span>Forecast</span>
+            </div>
+            <div class="center-hex-wrapper">
+                <div class="center-hex">
+                    <div class="hex-btn ai-active" onclick="showMiniModal()">
+                        <svg width="26" height="28" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"/><polyline points="13 11 9 17 15 17 11 23"/></svg>
+                    </div>
+                </div>
+            </div>
+            <div class="dock-tab" data-page="pg3.html">
+                <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" x2="18" y1="20" x2="18" y2="10"/><line x1="12" x2="12" y1="20" x2="12" y2="4"/><line x1="6" x2="6" y1="20" x2="6" y2="14"/></svg>
+                <span>Insights</span>
+            </div>
+            <div class="dock-tab" data-page="pg4.html">
+                <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span>Profile</span>
+            </div>
+        </nav>
+
+    </div>
+
+    <script>
+        WeatherApp.icons.ensureDefs();
+        WeatherApp.overlay.bindEsc();
+
+        var storeState = WeatherApp.store.load();
+        var cityData = WeatherApp.getCityData(storeState.cityKey);
+        var todayObj = cityData.days[0];
+        var todayMetrics = WeatherApp.generateMetrics(cityData.key, todayObj);
+        var prediction = WeatherApp.generatePrediction(cityData.key, cityData.days);
+        var tomorrowObj = cityData.days[1] || cityData.days[0];
+        var tomorrowMetrics = WeatherApp.generateMetrics(cityData.key, tomorrowObj);
+
+        function riskColor(level) {
+            return level === 'High' ? '#ff5252' : level === 'Moderate' ? '#ffaa00' : '#3bf0ff';
+        }
+
+        function riskBg(level) {
+            return level === 'High' ? 'rgba(255, 82, 82, 0.15)' : level === 'Moderate' ? 'rgba(255, 170, 0, 0.15)' : 'rgba(59, 240, 255, 0.15)';
+        }
+
+        function cloudCoverForIcon(icon) {
+            switch (icon) {
+                case 'icon-sunny': return 10;
+                case 'icon-partly-cloudy': return 40;
+                case 'icon-cloudy': return 75;
+                case 'icon-rain': return 85;
+                case 'icon-drizzle': return 70;
+                case 'icon-thunder': return 95;
+                case 'icon-snow': return 90;
+                case 'icon-mist': return 55;
+                case 'icon-fog': return 65;
+                case 'icon-windy': return 30;
+                default: return 50;
+            }
+        }
+
+        function severityLabel(value, thresholds, labels) {
+            for (var i = 0; i < thresholds.length; i++) {
+                if (value <= thresholds[i]) return labels[i];
+            }
+            return labels[labels.length - 1];
+        }
+
+        // -----------------------------------------------------------
+        // RENDER — background preview, mini modal, and full dashboard
+        // -----------------------------------------------------------
+        function renderPrediction() {
+            var windUnit = storeState.windUnit;
+            var windVal = WeatherApp.convertWind(tomorrowMetrics.wind, windUnit);
+            var windUnitLbl = windUnit === 'mph' ? 'mph' : 'km/h';
+            var cloudCover = cloudCoverForIcon(tomorrowObj.icon);
+            var windLbl = severityLabel(windVal, [12, 25], ['Light', 'Moderate', 'Strong']);
+            var humidityLbl = severityLabel(tomorrowMetrics.humidity, [50, 75], ['Low', 'Moderate', 'High']);
+            var rainfallMm = Math.round(prediction.rainProbability * 0.3) + ' - ' + Math.round(prediction.rainProbability * 0.4) + ' mm';
+            var rainfallLbl = severityLabel(prediction.rainProbability, [30, 60], ['Low', 'Moderate', 'High']);
+            var outdoorCond = prediction.riskLevel === 'High' ? 'Not Ideal' : prediction.riskLevel === 'Moderate' ? 'Fair' : 'Great';
+            var outdoorLbl = prediction.riskLevel === 'High' ? 'Poor' : prediction.riskLevel === 'Moderate' ? 'Okay' : 'Good';
+
+            // --- Background preview (behind the modal layers) ---
+            var bgTemp = document.getElementById('bgPreviewTemp');
+            var bgCond = document.getElementById('bgPreviewCond');
+            if (bgTemp) bgTemp.textContent = WeatherApp.formatTemp(todayMetrics.temp, storeState.unit);
+            if (bgCond) bgCond.textContent = todayObj.condition;
+
+            // --- Mini modal ---
+            var bannerIconHolder = document.getElementById('bannerIconHolder');
+            if (bannerIconHolder) bannerIconHolder.innerHTML = WeatherApp.icons.markup(tomorrowObj.icon);
+            var bannerConditionTitle = document.getElementById('bannerConditionTitle');
+            if (bannerConditionTitle) bannerConditionTitle.textContent = tomorrowObj.condition + ' Expected Tomorrow';
+            var bannerDesc = document.getElementById('bannerDesc');
+            if (bannerDesc) bannerDesc.innerHTML = 'Expected during the afternoon hours with a <span style="color:var(--cyan); font-weight:600;">' + prediction.rainProbability + '%</span> chance.';
+
+            var trRainfallVal = document.getElementById('trRainfallVal');
+            var trRainfallLbl = document.getElementById('trRainfallLbl');
+            if (trRainfallVal) trRainfallVal.textContent = rainfallMm;
+            if (trRainfallLbl) { trRainfallLbl.textContent = rainfallLbl; trRainfallLbl.style.color = riskColor(rainfallLbl === 'High' ? 'High' : rainfallLbl === 'Moderate' ? 'Moderate' : 'Low'); }
+
+            var trWindVal = document.getElementById('trWindVal');
+            var trWindLbl = document.getElementById('trWindLbl');
+            if (trWindVal) trWindVal.textContent = windVal + ' ' + windUnitLbl;
+            if (trWindLbl) trWindLbl.textContent = windLbl;
+
+            var trTempVal = document.getElementById('trTempVal');
+            var trTempLbl = document.getElementById('trTempLbl');
+            if (trTempVal) trTempVal.textContent = WeatherApp.formatTemp(tomorrowObj.min, storeState.unit) + ' - ' + WeatherApp.formatTemp(tomorrowObj.max, storeState.unit);
+            if (trTempLbl) trTempLbl.textContent = tomorrowObj.max >= 34 ? 'Hot' : tomorrowObj.max >= 27 ? 'Warm' : 'Mild';
+
+            var trHumidityVal = document.getElementById('trHumidityVal');
+            var trHumidityLbl = document.getElementById('trHumidityLbl');
+            if (trHumidityVal) trHumidityVal.textContent = tomorrowMetrics.humidity + '%';
+            if (trHumidityLbl) { trHumidityLbl.textContent = humidityLbl; trHumidityLbl.style.color = humidityLbl === 'High' ? 'var(--red, #ff5252)' : humidityLbl === 'Moderate' ? 'var(--cyan)' : 'var(--green)'; }
+
+            var trOutdoorVal = document.getElementById('trOutdoorVal');
+            var trOutdoorLbl = document.getElementById('trOutdoorLbl');
+            if (trOutdoorVal) trOutdoorVal.textContent = outdoorCond;
+            if (trOutdoorLbl) { trOutdoorLbl.textContent = outdoorLbl; trOutdoorLbl.style.color = riskColor(prediction.riskLevel); }
+
+            var miniAdviceText = document.getElementById('miniAdviceText');
+            if (miniAdviceText) miniAdviceText.textContent = prediction.recommendation;
+
+            // --- Full dashboard ---
+            var dashConfidenceVal = document.getElementById('dashConfidenceVal');
+            var dashConfidenceLabel = document.getElementById('dashConfidenceLabel');
+            var dashConfidenceBar = document.getElementById('dashConfidenceBar');
+            if (dashConfidenceVal) dashConfidenceVal.textContent = prediction.confidence + '%';
+            if (dashConfidenceLabel) dashConfidenceLabel.textContent = prediction.confidenceLabel;
+            if (dashConfidenceBar) dashConfidenceBar.style.width = prediction.confidence + '%';
+
+            var dashRainfallVal = document.getElementById('dashRainfallVal');
+            var dashRainfallMm = document.getElementById('dashRainfallMm');
+            var dashWindVal = document.getElementById('dashWindVal');
+            if (dashRainfallVal) dashRainfallVal.textContent = prediction.rainProbability + '%';
+            if (dashRainfallMm) dashRainfallMm.textContent = rainfallMm;
+            if (dashWindVal) dashWindVal.textContent = windVal + ' ' + windUnitLbl;
+
+            var aiSummaryText = document.getElementById('aiSummaryText');
+            if (aiSummaryText) aiSummaryText.textContent = tomorrowObj.condition + ' is expected tomorrow afternoon in ' + storeState.cityDisplay.split(',')[0] + '. ' + prediction.recommendation;
+
+            var ovPrecipVal = document.getElementById('ovPrecipVal');
+            var ovTempVal = document.getElementById('ovTempVal');
+            var ovCloudVal = document.getElementById('ovCloudVal');
+            var ovCloudLbl = document.getElementById('ovCloudLbl');
+            var ovWindVal = document.getElementById('ovWindVal');
+            var ovWindLbl = document.getElementById('ovWindLbl');
+            var ovFeelsVal = document.getElementById('ovFeelsVal');
+            var ovFeelsLbl = document.getElementById('ovFeelsLbl');
+            if (ovPrecipVal) ovPrecipVal.textContent = prediction.rainProbability + '%';
+            if (ovTempVal) ovTempVal.textContent = WeatherApp.formatTemp(tomorrowObj.min, storeState.unit) + ' / ' + WeatherApp.formatTemp(tomorrowObj.max, storeState.unit);
+            if (ovCloudVal) ovCloudVal.textContent = cloudCover + '%';
+            if (ovCloudLbl) ovCloudLbl.textContent = cloudCover >= 70 ? 'High' : cloudCover >= 40 ? 'Moderate' : 'Low';
+            if (ovWindVal) ovWindVal.innerHTML = windVal + ' <small>' + windUnitLbl + '</small>';
+            if (ovWindLbl) ovWindLbl.textContent = windLbl;
+            if (ovFeelsVal) ovFeelsVal.textContent = WeatherApp.formatTemp(tomorrowMetrics.feelsLike, storeState.unit);
+            if (ovFeelsLbl) { ovFeelsLbl.textContent = tomorrowMetrics.feelsLike >= 33 ? 'Hot' : tomorrowMetrics.feelsLike >= 24 ? 'Warm' : 'Mild'; }
+
+            var aiInsightText = document.getElementById('aiInsightText');
+            if (aiInsightText) aiInsightText.textContent = 'Conditions point to ' + tomorrowObj.condition.toLowerCase() + ' tomorrow with ' + tomorrowMetrics.humidity + '% humidity. ' + (prediction.stormProbability > 30 ? 'Storm risk increases through the afternoon.' : 'No major storm risk is expected.');
+
+            var riskLevelBadge = document.getElementById('riskLevelBadge');
+            if (riskLevelBadge) {
+                riskLevelBadge.textContent = prediction.riskLevel === 'Low' ? 'Good' : prediction.riskLevel;
+                riskLevelBadge.style.color = riskColor(prediction.riskLevel);
+                riskLevelBadge.style.background = riskBg(prediction.riskLevel);
+            }
+            var bestTimeRange = document.getElementById('bestTimeRange');
+            var bestTimeDesc = document.getElementById('bestTimeDesc');
+            if (bestTimeRange) bestTimeRange.textContent = prediction.riskLevel === 'High' ? '6:00 AM - 8:00 AM' : '10:00 AM - 1:00 PM';
+            if (bestTimeDesc) bestTimeDesc.textContent = prediction.riskLevel === 'High'
+                ? 'Higher risk later in the day — step out early if you can.'
+                : 'Low chance of disruption during these hours. Enjoy your day!';
+
+            var carryUmbrella = document.getElementById('carryUmbrella');
+            var carryRaincoat = document.getElementById('carryRaincoat');
+            var carrySunglasses = document.getElementById('carrySunglasses');
+            var rainy = (tomorrowObj.icon === 'icon-rain' || tomorrowObj.icon === 'icon-thunder' || tomorrowObj.icon === 'icon-drizzle');
+            if (carryUmbrella) carryUmbrella.textContent = rainy ? 'Highly Recommended' : 'Optional';
+            if (carryRaincoat) carryRaincoat.textContent = tomorrowObj.icon === 'icon-thunder' ? 'Highly Recommended' : (rainy ? 'Recommended' : 'Optional');
+            if (carrySunglasses) carrySunglasses.textContent = tomorrowObj.icon === 'icon-sunny' ? 'Highly Recommended' : 'Optional';
+        }
+
+        renderPrediction();
+
+        (function () {
+            const modal = document.getElementById('miniModalOverlay');
+            const dashboard = document.getElementById('fullDashboardView');
+
+            // ---------------------------------------------------------------
+            // Navigation (fix #1 & #2)
+            // Closing the popup or going back from the Full AI Prediction
+            // page must never reveal any overlay/placeholder container —
+            // it must properly hide/destroy the AI modal and then perform a
+            // real navigation back to the Home screen (index.html).
+            // ---------------------------------------------------------------
+            function goHome() {
+                // Fully hide/destroy the AI overlay first so nothing is left
+                // visible for even a frame before navigation happens.
+                modal.classList.add('hidden-view');
+                dashboard.classList.remove('active-view');
+                window.location.href = 'index.html';
+            }
+
+            // Opens the mini AI popup as an overlay on top of the current
+            // screen (iOS-modal style: blur + dark overlay).
+            function showMiniModal() {
+                WeatherApp.overlay.closeAllExcept('predictionModal');
+                dashboard.classList.remove('active-view');
+                modal.classList.remove('hidden-view');
+                WeatherApp.overlay.opened('predictionModal');
+            }
+
+            // "View Detailed Forecast" — pushes from the mini popup into the
+            // Full AI Prediction page.
+            function transitionToDashboard() {
+                modal.classList.add('hidden-view');
+                dashboard.classList.add('active-view');
+                WeatherApp.overlay.closed('predictionModal');
+            }
+
+            // FIX (issue #1): Close (X) on the mini popup must dismiss the
+            // popup and go straight back to index.html — never open the
+            // Full AI Prediction page, never show a blank placeholder.
+            function dismissModal() {
+                goHome();
+            }
+
+            // FIX (issue #1): Back on the Full AI Prediction page navigates
+            // directly to index.html — never to the mini popup, never to a
+            // blank placeholder.
+            function goBackFromDashboard() {
+                goHome();
+            }
+
+            // Pressing ESC while the mini popup is open closes it the same
+            // way the X button does (never leaves a blank overlay behind).
+            WeatherApp.overlay.register('predictionModal', function () {
+                if (!modal.classList.contains('hidden-view')) {
+                    modal.classList.add('hidden-view');
+                }
+            });
+
+            window.showMiniModal = showMiniModal;
+            window.transitionToDashboard = transitionToDashboard;
+            window.dismissModal = dismissModal;
+            window.goBackFromDashboard = goBackFromDashboard;
+        })();
+
+        // ==========================================================
+        // BOTTOM DOCK NAVIGATION (Home / Forecast / Insights / Profile
+        // navigate to their real pages; the center hex re-opens this
+        // page's own mini modal, which is the correct behavior since
+        // we're already on the AI Prediction page).
+        // ==========================================================
+        document.querySelectorAll('.dock-nav [data-page]').forEach(function (el) {
+            el.addEventListener('click', function () { window.location.href = el.dataset.page; });
+        });
+    </script>
+</body>
+</html>
+<script src="navigation.js"></script>

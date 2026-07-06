@@ -1,0 +1,3205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather App - Pure Vector Edition</title>
+    <!-- Lucide Icons for clean UI components -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Shared weather data store / icon library / overlay manager (single source of truth across all pages) -->
+    <script src="weather-data.js"></script>
+    <style>
+        :root {
+            --bg-gradient: radial-gradient(circle at 50% 30%, #151a4a 0%, #050716 70%);
+            --glass-card: rgba(25, 28, 62, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #ffffff;
+            --text-secondary: #8c92c2;
+            --accent-blue: #00d2ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+                        box-shadow 0.3s ease, 
+                        background 0.3s ease, 
+                        border-color 0.3s ease;
+        }
+
+        body {
+            background-color: #03040b;
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px 0;
+        }
+
+        /* Fixed App Window Frame matching pg 1.png perfectly */
+        .app-window {
+            width: 393px;
+            height: 852px;
+            background: var(--bg-gradient);
+            border-radius: 44px;
+            position: relative;
+            border: 6px solid #181b36;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Scrollable Content Container */
+        .scrollable-content {
+            flex: 1;
+            overflow-y: scroll;
+            padding: 24px 16px 110px 16px;
+        }
+
+        .scrollable-content::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Top Header Navigation UI */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .btn-circle {
+            width: 44px;
+            height: 44px;
+            background: var(--glass-card);
+            border: 1px solid var(--glass-border);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-primary);
+            cursor: pointer;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .btn-circle:hover {
+            transform: scale(1.1) translateY(-2px);
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 8px 20px rgba(255, 255, 255, 0.1);
+        }
+
+        .location-group {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .loc-name {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .page-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .page-dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .page-dots span.active {
+            background: var(--accent-blue);
+            width: 16px;
+            border-radius: 4px;
+        }
+
+        /* Input Bar Setup */
+        .search-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .search-box {
+            flex: 1;
+            background: rgba(12, 14, 38, 0.7);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            gap: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        .search-box input {
+            background: transparent;
+            border: none;
+            color: #fff;
+            width: 100%;
+            outline: none;
+            font-size: 14px;
+        }
+
+        .search-box input::placeholder { color: var(--text-secondary); }
+
+        .locate-btn {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #261b75 0%, #11093c 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 18px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #9ba0e6;
+            cursor: pointer;
+        }
+
+        .locate-btn:hover {
+            transform: scale(1.08) rotate(15deg);
+            box-shadow: 0 8px 24px rgba(38, 27, 117, 0.6);
+        }
+
+        /* Hero Atmospheric Dynamic Module Component */
+        .hero-weather-card {
+            background: linear-gradient(135deg, rgba(24, 56, 186, 0.45) 0%, rgba(88, 41, 217, 0.25) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 28px;
+            padding: 24px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.05), 0 20px 40px rgba(0,0,0,0.3);
+        }
+
+        .hero-weather-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(24, 56, 186, 0.3), inset 0 0 24px rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .hero-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .hero-left .temp-txt {
+            font-size: 74px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .hero-left .cond-txt {
+            font-size: 22px;
+            font-weight: 500;
+            margin-top: 6px;
+        }
+
+        .hero-left .feel-txt {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .hero-right svg {
+            width: 110px;
+            height: 110px;
+            filter: drop-shadow(0 8px 16px rgba(0,0,0,0.4));
+        }
+
+        .hero-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 24px;
+        }
+
+        .hi-lo-group {
+            display: flex;
+            gap: 14px;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .sync-pill {
+            background: rgba(0, 0, 0, 0.35);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            cursor: pointer;
+        }
+        
+        .sync-pill:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+        }
+
+        /* Four Column Metrics Panel Grid */
+        .stats-matrix {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .stat-item {
+            background: var(--glass-card);
+            border: 1px solid var(--glass-border);
+            border-radius: 18px;
+            padding: 14px 6px;
+            text-align: center;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .stat-item:hover {
+            transform: translateY(-5px) scale(1.03);
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(0, 212, 255, 0.3);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+        }
+
+        .stat-title {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 6px;
+        }
+
+        .stat-val { font-size: 15px; font-weight: 600; }
+        .stat-lbl { font-size: 10px; color: var(--text-secondary); margin-top: 2px;}
+
+        /* AI Prediction Module Segment */
+        .ai-assist-card {
+            background: rgba(14, 16, 42, 0.75);
+            border: 1px solid var(--glass-border);
+            border-radius: 22px;
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+        
+        .ai-assist-card:hover {
+            border-color: rgba(255,255,255,0.15);
+            background: rgba(20, 23, 56, 0.8);
+        }
+
+        .ai-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ai-avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #202763 0%, #0c0e2b 100%);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--accent-blue);
+        }
+
+        .ai-meta { display: flex; flex-direction: column; max-width: 165px; }
+        .ai-tag-row { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+        .ai-beta { background: rgba(0, 210, 255, 0.15); color: var(--accent-blue); font-size: 9px; padding: 1px 4px; border-radius: 4px;}
+        .ai-desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; line-height: 1.3; }
+
+        /* Enhanced Glassmorphic 3D Interactive Action Element */
+        .glass-action-3d {
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            padding: 10px 14px;
+            border-radius: 14px;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2);
+            transform-style: preserve-3d;
+            perspective: 500px;
+        }
+
+        .glass-action-3d:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(0, 212, 255, 0.4);
+            transform: translateY(-5px) translateZ(15px) rotateX(8deg);
+            box-shadow: 0 12px 24px rgba(0, 212, 255, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+        }
+
+        /* Typography Global Header Elements */
+        .section-header-block {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+
+        .section-header-block h3 { font-size: 16px; font-weight: 600; }
+        .view-link { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; text-decoration: none; }
+        .view-link:hover { color: #ffffff; transform: translateX(3px); }
+
+        /* Hourly Display Rows */
+        .hourly-row-scroller {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            margin-bottom: 24px;
+            padding: 4px 0;
+        }
+
+        .hourly-row-scroller::-webkit-scrollbar { display: none; }
+
+        .hourly-item-card {
+            min-width: 64px;
+            background: var(--glass-card);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 14px 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .hourly-item-card:hover {
+            transform: scale(1.08) translateY(-4px);
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255,255,255,0.2);
+        }
+
+        .hourly-item-card.selected-active {
+            background: linear-gradient(180deg, rgba(24, 56, 186, 0.4) 0%, rgba(5, 7, 22, 0.6) 100%);
+            border: 1px solid rgba(0, 212, 255, 0.45);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.2);
+        }
+
+        .h-time { font-size: 11px; color: var(--text-secondary); }
+        .h-img svg { width: 28px; height: 28px; }
+        .h-temp { font-size: 14px; font-weight: 600; }
+
+        /* Extended Forecast List */
+        .seven-day-container { display: flex; flex-direction: column; gap: 14px; }
+        
+        .day-strip {
+            display: grid;
+            grid-template-columns: 75px 40px 105px 65px 45px 15px;
+            align-items: center;
+            font-size: 14px;
+            padding: 6px 8px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+        }
+
+        .day-strip:hover {
+            transform: translateX(4px);
+            background: rgba(255, 255, 255, 0.03);
+            border-color: var(--glass-border);
+            backdrop-filter: blur(4px);
+        }
+
+        .day-strip .calendar-meta { display: flex; flex-direction: column; }
+        .calendar-meta .day-name { font-weight: 500; }
+        .calendar-meta .date-sub { font-size: 11px; color: var(--text-secondary); }
+        .day-strip .weather-icon svg { width: 26px; height: 26px; }
+        .day-strip .cond-label { color: var(--text-secondary); font-size: 13px; }
+        .day-strip .temp-spread { font-weight: 500; display: flex; gap: 8px; }
+        .day-strip .precip-val { color: var(--accent-blue); font-size: 11px; display: flex; align-items: center; gap: 2px; }
+        .day-strip .row-chevron { color: var(--text-secondary); justify-self: end; }
+
+        /* Perfectly Overlayed System Dock Footers matching image_ce74df.png */
+        .dock-navigation-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 86px;
+            background: rgba(10, 12, 32, 0.85);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-top: 1px solid var(--glass-border);
+            border-radius: 30px 30px 0 0;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 10px 16px 10px;
+            z-index: 100;
+        }
+
+        .dock-tab {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            color: var(--text-secondary);
+            font-size: 10px;
+            cursor: pointer;
+            width: 60px;
+        }
+
+        .dock-tab:hover {
+            color: #fff;
+            transform: translateY(-4px);
+        }
+
+        .dock-tab.active-tab { color: #5bafe4; }
+        .dock-tab i { width: 22px; height: 22px; }
+
+        /* Central Anchored Floating Trigger Action Box Layout */
+        .center-hex-anchor {
+            position: relative;
+            top: -24px;
+        }
+
+        .hex-action-btn {
+            width: 62px;
+            height: 62px;
+            background: linear-gradient(135deg, #3d41f7 0%, #151673 100%);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            border: 4px solid #060716;
+            box-shadow: 0 10px 24px rgba(61, 65, 247, 0.4), inset 0 1px 1px rgba(255,255,255,0.4);
+            cursor: pointer;
+        }
+
+        .hex-action-btn:hover {
+            transform: scale(1.12) rotate(-10deg);
+            box-shadow: 0 14px 30px rgba(61, 65, 247, 0.6), 0 0 20px rgba(0, 212, 255, 0.3);
+            background: linear-gradient(135deg, #5054ff 0%, #1d1f94 100%);
+        }
+
+        /* =========================================================
+           SLIDE-OUT NAVIGATION DRAWER (SIDEBAR)
+           ========================================================= */
+        .sidebar-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(3, 4, 11, 0.55);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 300;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.35s ease-in-out;
+        }
+
+        .sidebar-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .sidebar-drawer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 78%;
+            max-width: 310px;
+            background: rgba(15, 18, 44, 0.72);
+            backdrop-filter: blur(26px);
+            -webkit-backdrop-filter: blur(26px);
+            border: 1px solid var(--glass-border);
+            border-left: none;
+            border-radius: 0 28px 28px 0;
+            box-shadow:
+                10px 0 40px rgba(0, 0, 0, 0.55),
+                0 0 50px rgba(0, 210, 255, 0.08),
+                0 0 80px rgba(112, 71, 235, 0.1),
+                inset -1px 0 0 rgba(255, 255, 255, 0.05);
+            z-index: 301;
+            display: flex;
+            flex-direction: column;
+            padding: 26px 18px 20px;
+            overflow-y: auto;
+            transform: translateX(-105%);
+            transition: transform 0.38s cubic-bezier(0.19, 1, 0.22, 1);
+        }
+
+        .sidebar-drawer::-webkit-scrollbar { display: none; }
+
+        .sidebar-drawer.active {
+            transform: translateX(0);
+        }
+
+        /* --- Header --- */
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 22px;
+        }
+
+        .sidebar-logo-wrap {
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .sidebar-logo {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3d41f7 0%, #151673 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            box-shadow: 0 0 18px rgba(61, 65, 247, 0.55), 0 0 34px rgba(0, 212, 255, 0.25);
+            border: 3px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .sidebar-online-dot {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #3bf0ff;
+            bottom: 0;
+            right: 0;
+            border: 2px solid #0c0e2b;
+            box-shadow: 0 0 8px #3bf0ff, 0 0 14px rgba(59, 240, 255, 0.6);
+            animation: dotPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes dotPulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.25); opacity: 0.7; }
+        }
+
+        .sidebar-app-name { font-size: 17px; font-weight: 700; letter-spacing: 0.2px; }
+        .sidebar-app-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+        /* --- Profile Card --- */
+        .sidebar-profile-card {
+            background: var(--glass-card);
+            border: 1px solid var(--glass-border);
+            border-radius: 18px;
+            padding: 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 22px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+
+        .sidebar-profile-card:hover {
+            border-color: rgba(0, 212, 255, 0.3);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .sidebar-avatar {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #202763 0%, #0c0e2b 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--accent-blue);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            flex-shrink: 0;
+        }
+
+        .sidebar-profile-name {
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .sidebar-premium-badge {
+            font-size: 8px;
+            font-weight: 700;
+            color: #241500;
+            background: linear-gradient(135deg, #ffd600, #ff7b42);
+            padding: 2px 6px;
+            border-radius: 6px;
+            letter-spacing: 0.2px;
+        }
+
+        .sidebar-profile-loc {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 2px;
+        }
+
+        /* --- Menu --- */
+        .sidebar-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            margin-bottom: 20px;
+        }
+
+        .sidebar-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 14px;
+            border: 1px solid transparent;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sidebar-menu-item .menu-icon-box {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--accent-blue);
+            flex-shrink: 0;
+        }
+
+        .sidebar-menu-item .menu-icon-box i { width: 16px; height: 16px; }
+
+        .sidebar-menu-item .menu-label { flex: 1; }
+
+        .sidebar-menu-item .menu-chevron {
+            width: 14px;
+            height: 14px;
+            color: var(--text-secondary);
+        }
+
+        .sidebar-menu-item:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(0, 212, 255, 0.25);
+            transform: translateX(3px);
+            box-shadow: 0 6px 18px rgba(0, 212, 255, 0.12);
+        }
+
+        .sidebar-menu-item.active-menu-item {
+            background: linear-gradient(135deg, rgba(24, 56, 186, 0.35) 0%, rgba(88, 41, 217, 0.2) 100%);
+            border-color: rgba(0, 212, 255, 0.35);
+        }
+
+        .sidebar-menu-item.active-menu-item .menu-icon-box {
+            color: #fff;
+            background: rgba(0, 212, 255, 0.2);
+        }
+
+        .menu-ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.35);
+            transform: scale(0);
+            animation: rippleAnim 0.6s ease-out;
+            pointer-events: none;
+        }
+
+        @keyframes rippleAnim {
+            to { transform: scale(3.2); opacity: 0; }
+        }
+
+        /* --- Quick Actions --- */
+        .sidebar-quick-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .sidebar-quick-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            border-radius: 14px;
+            padding: 12px 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-primary);
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sidebar-quick-btn i { width: 18px; height: 18px; color: var(--accent-blue); }
+
+        .sidebar-quick-btn:hover {
+            transform: translateY(-3px);
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(0, 212, 255, 0.3);
+            box-shadow: 0 10px 20px rgba(0, 212, 255, 0.15);
+        }
+
+        /* --- App Info Footer --- */
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 6px;
+        }
+
+        .sidebar-glow-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.5), rgba(112, 71, 235, 0.5), transparent);
+            box-shadow: 0 0 8px rgba(0, 212, 255, 0.35);
+            margin-bottom: 14px;
+        }
+
+        .sidebar-app-info { text-align: center; }
+        .sidebar-app-info .info-name { font-size: 12px; font-weight: 700; }
+        .sidebar-app-info .info-version { font-size: 10px; color: var(--text-secondary); margin-top: 2px; }
+        .sidebar-app-info .info-tag { font-size: 9px; color: var(--text-secondary); opacity: 0.7; font-style: italic; margin-top: 6px; }
+
+        /* =========================================================
+           NOTIFICATION BELL DOT
+           ========================================================= */
+        .notif-dot {
+            position: absolute;
+            top: 9px;
+            right: 9px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ff3b7e;
+            box-shadow: 0 0 6px #ff3b7e, 0 0 10px rgba(255, 59, 126, 0.6);
+            animation: dotPulse 2s ease-in-out infinite;
+        }
+        .notif-dot.hidden { display: none; }
+
+        /* =========================================================
+           NOTIFICATION PANEL
+           ========================================================= */
+        .notif-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(3, 4, 11, 0.55);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 400;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.32s ease-in-out;
+        }
+        .notif-backdrop.active { opacity: 1; pointer-events: auto; }
+
+        .notification-panel {
+            position: absolute;
+            top: 70px;
+            left: 16px;
+            right: 16px;
+            max-height: 68%;
+            background: rgba(15, 18, 44, 0.88);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            backdrop-filter: blur(26px);
+            -webkit-backdrop-filter: blur(26px);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 0 40px rgba(0, 210, 255, 0.08);
+            z-index: 401;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            opacity: 0;
+            transform: translateY(-24px) scale(0.96);
+            pointer-events: none;
+            transition: opacity 0.38s cubic-bezier(0.19, 1, 0.22, 1), transform 0.38s cubic-bezier(0.19, 1, 0.22, 1);
+        }
+        .notification-panel.active {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+        .notif-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+        .notif-panel-header h3 { font-size: 16px; font-weight: 700; }
+        .notif-close { width: 18px; height: 18px; color: var(--text-secondary); cursor: pointer; }
+        .notif-close:hover { color: #fff; transform: rotate(90deg); }
+        .notif-list { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; max-height: 320px; padding-right: 2px; }
+        .notif-list::-webkit-scrollbar { width: 4px; }
+        .notif-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
+        .notif-item {
+            display: flex;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 12px;
+            cursor: pointer;
+            position: relative;
+        }
+        .notif-item:hover { background: rgba(255, 255, 255, 0.08); transform: translateX(3px); }
+        .notif-item.unread::before {
+            content: '';
+            position: absolute;
+            top: 14px;
+            right: 12px;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            box-shadow: 0 0 6px var(--accent-blue);
+        }
+        .notif-icon-box {
+            width: 36px;
+            height: 36px;
+            flex-shrink: 0;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #202763 0%, #0c0e2b 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-blue);
+        }
+        .notif-icon-box i { width: 16px; height: 16px; }
+        .notif-content { flex: 1; min-width: 0; }
+        .notif-title-row { display: flex; justify-content: space-between; gap: 8px; }
+        .notif-title { font-size: 13px; font-weight: 600; }
+        .notif-time { font-size: 10px; color: var(--text-secondary); white-space: nowrap; }
+        .notif-desc { font-size: 11px; color: var(--text-secondary); margin-top: 3px; line-height: 1.4; }
+        .notif-empty { text-align: center; padding: 30px 10px; color: var(--text-secondary); font-size: 13px; }
+        .notif-actions { display: flex; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--glass-border); }
+        .notif-action-btn {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--glass-border);
+            color: var(--text-primary);
+            padding: 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .notif-action-btn:hover { background: rgba(255, 255, 255, 0.14); }
+        .notif-action-btn.danger { color: #ff6b8a; }
+        .notif-action-btn.danger:hover { background: rgba(255, 59, 126, 0.15); border-color: rgba(255, 59, 126, 0.4); }
+
+        /* =========================================================
+           LOCATION DROPDOWN
+           ========================================================= */
+        .location-dropdown-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(3, 4, 11, 0.4);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 400;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .location-dropdown-backdrop.active { opacity: 1; pointer-events: auto; }
+        .location-dropdown {
+            position: absolute;
+            top: 70px;
+            left: 50%;
+            width: 230px;
+            background: rgba(15, 18, 44, 0.92);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            backdrop-filter: blur(26px);
+            -webkit-backdrop-filter: blur(26px);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 0 40px rgba(0, 210, 255, 0.08);
+            z-index: 401;
+            padding: 14px;
+            opacity: 0;
+            transform: translate(-50%, -16px) scale(0.94);
+            pointer-events: none;
+            transition: opacity 0.34s cubic-bezier(0.19, 1, 0.22, 1), transform 0.34s cubic-bezier(0.19, 1, 0.22, 1);
+        }
+        .location-dropdown.active { opacity: 1; transform: translate(-50%, 0) scale(1); pointer-events: auto; }
+        .loc-dd-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin: 8px 4px 6px; }
+        .loc-dd-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 8px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            color: var(--text-primary);
+        }
+        .loc-dd-item i { width: 15px; height: 15px; color: var(--accent-blue); }
+        .loc-dd-item:hover { background: rgba(255, 255, 255, 0.08); transform: translateX(3px); }
+        .loc-dd-item.selected { background: rgba(0, 212, 255, 0.12); border: 1px solid rgba(0, 212, 255, 0.3); }
+        .loc-dd-divider { height: 1px; background: var(--glass-border); margin: 6px 0; }
+
+        /* =========================================================
+           SEARCH DROPDOWN / HISTORY / RESULTS
+           ========================================================= */
+        .search-dropdown {
+            position: absolute;
+            top: 56px;
+            left: 0;
+            width: calc(100% - 60px);
+            background: rgba(15, 18, 44, 0.94);
+            border: 1px solid var(--glass-border);
+            border-radius: 18px;
+            backdrop-filter: blur(22px);
+            -webkit-backdrop-filter: blur(22px);
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+            z-index: 250;
+            padding: 10px;
+            opacity: 0;
+            transform: translateY(-8px);
+            pointer-events: none;
+            transition: opacity 0.28s ease, transform 0.28s ease;
+        }
+        .search-dropdown.active { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .search-dropdown-title { font-size: 10px; text-transform: uppercase; color: var(--text-secondary); margin: 4px 6px 8px; letter-spacing: 0.5px; display: flex; justify-content: space-between; align-items: center; }
+        .search-dropdown-title span.clear-hist { text-transform: none; color: var(--accent-blue); cursor: pointer; font-size: 11px; }
+        .search-history-item { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 10px; font-size: 13px; cursor: pointer; }
+        .search-history-item i { width: 14px; height: 14px; color: var(--text-secondary); }
+        .search-history-item:hover { background: rgba(255, 255, 255, 0.08); }
+        .search-error { display: flex; align-items: center; gap: 8px; color: #ff6b8a; font-size: 12px; padding: 10px; animation: shakeError 0.4s ease; }
+        @keyframes shakeError {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+        .search-result-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 8px; border-radius: 10px; cursor: pointer; }
+        .search-result-item:hover { background: rgba(255, 255, 255, 0.08); }
+        .search-result-city { font-size: 13px; font-weight: 600; display:flex; align-items:center; gap:6px; }
+        .search-result-city i { width: 13px; height: 13px; color: var(--accent-blue); }
+        .search-result-temp { font-size: 13px; color: var(--accent-blue); font-weight: 600; }
+
+        .search-spinner {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-top-color: var(--accent-blue);
+            display: none;
+            flex-shrink: 0;
+            animation: spin 0.7s linear infinite;
+        }
+        .search-spinner.active { display: block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .locate-btn.loading i { animation: spin 0.8s linear infinite; }
+        .refresh-spin { animation: spin 0.8s linear infinite; }
+
+        /* =========================================================
+           TOASTS
+           ========================================================= */
+        .toast-container {
+            position: absolute;
+            bottom: 100px;
+            left: 16px;
+            right: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 500;
+            pointer-events: none;
+        }
+        .glass-toast {
+            background: rgba(15, 18, 44, 0.9);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 14px 30px rgba(0, 0, 0, 0.5);
+            font-size: 12px;
+            opacity: 0;
+            transform: translateY(16px);
+            animation: toastIn 0.4s ease forwards, toastOut 0.4s ease forwards 3.6s;
+            pointer-events: auto;
+        }
+        .glass-toast i { width: 16px; height: 16px; color: var(--accent-blue); flex-shrink: 0; }
+        .glass-toast.error i { color: #ff6b8a; }
+        @keyframes toastIn { to { opacity: 1; transform: translateY(0); } }
+        @keyframes toastOut { to { opacity: 0; transform: translateY(-8px); } }
+
+        /* =========================================================
+           GENERIC PREMIUM GLASS MODAL
+           ========================================================= */
+        .modal-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(3, 4, 11, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 450;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal-box {
+            width: 100%;
+            max-height: 78%;
+            background: rgba(15, 18, 44, 0.94);
+            border: 1px solid var(--glass-border);
+            border-top-left-radius: 28px;
+            border-top-right-radius: 28px;
+            backdrop-filter: blur(28px);
+            -webkit-backdrop-filter: blur(28px);
+            box-shadow: 0 -20px 50px rgba(0, 0, 0, 0.55), 0 0 40px rgba(0, 210, 255, 0.08);
+            padding: 20px 20px 24px;
+            display: flex;
+            flex-direction: column;
+            transform: translateY(40px);
+            transition: transform 0.38s cubic-bezier(0.19, 1, 0.22, 1);
+            overflow: hidden;
+        }
+        .modal-overlay.active .modal-box { transform: translateY(0); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0; }
+        .modal-header h3 { font-size: 17px; font-weight: 700; }
+        .modal-close { width: 20px; height: 20px; color: var(--text-secondary); cursor: pointer; }
+        .modal-close:hover { color: #fff; transform: rotate(90deg); }
+        .modal-body { overflow-y: auto; font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+        .modal-body::-webkit-scrollbar { width: 4px; }
+        .modal-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
+
+        .modal-input {
+            width: 100%;
+            background: rgba(12, 14, 38, 0.7);
+            border: 1px solid var(--glass-border);
+            border-radius: 14px;
+            padding: 12px 14px;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            margin-bottom: 16px;
+        }
+        .modal-input::placeholder { color: var(--text-secondary); }
+        .modal-btn-row { display: flex; gap: 10px; }
+        .modal-btn { flex: 1; padding: 12px; border-radius: 14px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--glass-border); }
+        .modal-btn.cancel { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
+        .modal-btn.cancel:hover { background: rgba(255, 255, 255, 0.1); }
+        .modal-btn.primary { background: linear-gradient(135deg, #3d41f7 0%, #151673 100%); color: #fff; border: none; }
+        .modal-btn.primary:hover { box-shadow: 0 8px 20px rgba(61, 65, 247, 0.4); transform: translateY(-2px); }
+
+        .settings-group { margin-bottom: 20px; }
+        .settings-label { font-size: 12px; color: var(--text-primary); font-weight: 600; margin-bottom: 10px; }
+        .settings-toggle-row { display: flex; gap: 8px; }
+        .settings-pill {
+            flex: 1;
+            text-align: center;
+            padding: 9px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            cursor: pointer;
+            color: var(--text-secondary);
+        }
+        .settings-pill.active { background: linear-gradient(135deg, rgba(24, 56, 186, 0.5) 0%, rgba(88, 41, 217, 0.3) 100%); color: #fff; border-color: rgba(0, 212, 255, 0.4); }
+        .settings-switch-row { display: flex; justify-content: space-between; align-items: center; }
+        .switch-toggle {
+            width: 44px;
+            height: 24px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            position: relative;
+            cursor: pointer;
+            border: 1px solid var(--glass-border);
+            flex-shrink: 0;
+        }
+        .switch-toggle::after {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            top: 2px;
+            left: 2px;
+            transition: left 0.25s ease;
+        }
+        .switch-toggle.on { background: linear-gradient(135deg, #3d41f7, #151673); border-color: rgba(0, 212, 255, 0.4); }
+        .switch-toggle.on::after { left: 22px; }
+
+        .list-card-item { display: flex; align-items: center; gap: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-border); border-radius: 16px; padding: 12px; margin-bottom: 10px; }
+        .list-card-item:hover { background: rgba(255, 255, 255, 0.08); }
+        .list-card-icon { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #202763, #0c0e2b); display: flex; align-items: center; justify-content: center; color: var(--accent-blue); flex-shrink: 0; }
+        .list-card-icon i { width: 17px; height: 17px; }
+        .list-card-meta { flex: 1; }
+        .list-card-city { font-size: 13px; font-weight: 600; color: #fff; }
+        .list-card-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+        .list-card-temp { font-size: 14px; font-weight: 600; color: #fff; }
+
+        .faq-item { margin-bottom: 14px; }
+        .faq-q { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+        .faq-a { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+        .contact-btn-row { display: flex; gap: 10px; margin-top: 6px; }
+
+        .coming-soon-box { display: flex; flex-direction: column; align-items: center; padding: 30px 10px; text-align: center; }
+        .coming-soon-box .cs-icon { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg, #202763, #0c0e2b); display: flex; align-items: center; justify-content: center; color: var(--accent-blue); margin-bottom: 16px; }
+        .coming-soon-box .cs-icon i { width: 30px; height: 30px; }
+        .coming-soon-box h4 { font-size: 15px; color: #fff; margin-bottom: 6px; }
+
+        /* =========================================================
+           PREMIUM FEATURE ADDITIONS (appended — original rules above
+           are untouched)
+           ========================================================= */
+
+        /* --- Hero card needs a positioning context for the favorite star --- */
+        .hero-weather-card { position: relative; }
+
+        .favorite-star-btn {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #ffffff;
+            backdrop-filter: blur(8px);
+            z-index: 5;
+        }
+        .favorite-star-btn:hover { transform: scale(1.12); background: rgba(0,0,0,0.4); }
+        .favorite-star-btn i { width: 16px; height: 16px; }
+        .favorite-star-btn.is-favorite { color: #ffd600; }
+        .favorite-star-btn.is-favorite i { fill: #ffd600; }
+
+        /* --- Unit toggle pill (sits beside the sync pill) --- */
+        .unit-toggle-pill {
+            background: rgba(0, 0, 0, 0.35);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-primary);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            cursor: pointer;
+            user-select: none;
+        }
+        .unit-toggle-pill:hover { background: rgba(255, 255, 255, 0.12); }
+        .unit-toggle-pill:active { transform: scale(0.94); }
+
+        /* --- Voice search mic button --- */
+        .mic-btn { display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-secondary); flex-shrink: 0; }
+        .mic-btn i { width: 17px; height: 17px; }
+        .mic-btn:hover { color: var(--accent-blue); }
+        .mic-btn.listening { color: #ff3b7e; animation: micPulse 1s ease-in-out infinite; }
+        @keyframes micPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
+
+        /* --- Search suggestions (autocomplete) --- */
+        .search-result-item.suggestion-active { background: rgba(0, 212, 255, 0.12); }
+
+        /* --- Weather alert banner --- */
+        .weather-alert-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: linear-gradient(135deg, rgba(255, 122, 0, 0.28) 0%, rgba(255, 59, 126, 0.2) 100%);
+            border: 1px solid rgba(255, 168, 78, 0.35);
+            border-radius: 18px;
+            padding: 12px 14px;
+            margin-bottom: 18px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            font-size: 12px;
+            font-weight: 500;
+            animation: alertSlideIn 0.4s ease;
+        }
+        @keyframes alertSlideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .weather-alert-banner i[data-lucide="alert-triangle"], .weather-alert-banner svg.alert-warn-icon { width: 18px; height: 18px; color: #ffb703; flex-shrink: 0; }
+        .weather-alert-banner span.alert-text { flex: 1; }
+        .weather-alert-banner .alert-close-icon { width: 15px; height: 15px; color: var(--text-secondary); cursor: pointer; flex-shrink: 0; }
+        .weather-alert-banner .alert-close-icon:hover { color: #fff; }
+
+        /* --- Pull to refresh --- */
+        .pull-refresh-indicator {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            height: 0;
+            overflow: hidden;
+            color: var(--text-secondary);
+            font-size: 11px;
+            transition: height 0.2s ease;
+            z-index: 6;
+        }
+        .prf-spinner {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            border-top-color: var(--accent-blue);
+            transition: transform 0.1s linear;
+        }
+        .prf-spinner.spinning { animation: spin 0.7s linear infinite; }
+
+        /* --- Skeleton loaders --- */
+        .skeleton-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 200;
+            background: var(--bg-gradient);
+            padding: 90px 16px 24px 16px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+        }
+        .skeleton-overlay.active { opacity: 1; pointer-events: auto; }
+        .sk-block {
+            border-radius: 20px;
+            background: linear-gradient(100deg, rgba(255,255,255,0.05) 30%, rgba(255,255,255,0.13) 50%, rgba(255,255,255,0.05) 70%);
+            background-size: 200% 100%;
+            animation: skShimmer 1.3s ease-in-out infinite;
+        }
+        @keyframes skShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        .sk-hero { height: 170px; margin-bottom: 20px; }
+        .sk-row { display: flex; gap: 8px; margin-bottom: 24px; }
+        .sk-row .sk-block { flex: 1; height: 74px; border-radius: 18px; }
+        .sk-line { height: 60px; margin-bottom: 12px; border-radius: 16px; }
+
+        /* --- Sunrise / sunset progress --- */
+        .sun-progress-card {
+            background: var(--glass-card);
+            border: 1px solid var(--glass-border);
+            border-radius: 22px;
+            padding: 18px 16px 14px;
+            margin-bottom: 24px;
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+        .sun-progress-arc { width: 100%; height: 90px; display: block; }
+        .sun-progress-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-top: -6px; }
+        .sun-progress-labels .sp-val { color: #fff; font-weight: 600; display: block; font-size: 12px; margin-top: 2px; }
+        .golden-hour-tag { text-align: center; font-size: 10px; color: #ffb703; margin-top: 6px; }
+
+        /* --- Weather radar preview --- */
+        .radar-preview-card {
+            position: relative;
+            border-radius: 22px;
+            overflow: hidden;
+            height: 120px;
+            margin-bottom: 24px;
+            border: 1px solid var(--glass-border);
+            background: radial-gradient(circle at 30% 30%, rgba(0,210,255,0.25), rgba(8,10,28,0.9) 70%);
+            cursor: pointer;
+            display: flex;
+            align-items: flex-end;
+            padding: 14px;
+        }
+        .radar-preview-card:hover { border-color: rgba(0,212,255,0.4); }
+        .radar-preview-card .radar-sweep {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 140%; height: 140%;
+            background: conic-gradient(from 0deg, rgba(0,210,255,0.35), transparent 40%);
+            transform: translate(-50%, -50%);
+            animation: radarSpin 4s linear infinite;
+        }
+        @keyframes radarSpin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+        .radar-preview-card .radar-label { position: relative; z-index: 2; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+
+        /* --- Weather detail popup content --- */
+        .detail-metric-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--glass-border); font-size: 12px; }
+        .detail-metric-row:last-of-type { border-bottom: none; }
+        .detail-metric-row .dm-label { color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+        .detail-metric-row .dm-label i { width: 13px; height: 13px; }
+        .detail-metric-row .dm-val { color: #fff; font-weight: 600; }
+        .detail-explainer { margin-top: 14px; padding: 12px 14px; background: rgba(255,255,255,0.04); border-radius: 14px; font-size: 12px; line-height: 1.6; color: var(--text-secondary); }
+
+        /* --- Dynamic hero weather icon animations --- */
+        .hero-right { position: relative; overflow: visible; }
+        .hero-right.anim-sunny svg .sun-core { transform-origin: center; animation: sunPulse 3s ease-in-out infinite; }
+        @keyframes sunPulse { 0%, 100% { filter: drop-shadow(0 0 6px #fb8500); } 50% { filter: drop-shadow(0 0 16px #ffb703); } }
+        .hero-right.anim-sunny .sun-ray { transform-origin: 65px 35px; animation: rayRotate 12s linear infinite; }
+        @keyframes rayRotate { to { transform: rotate(360deg); } }
+
+        .hero-right.anim-cloudy .cloud-shape-1 { animation: floatCloud 4s ease-in-out infinite; }
+        .hero-right.anim-cloudy .cloud-shape-2 { animation: floatCloud 5s ease-in-out infinite 0.5s; }
+        @keyframes floatCloud { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+        .hero-right.anim-rain .rain-drop { animation: dropFall 0.9s linear infinite; }
+        @keyframes dropFall { 0% { transform: translateY(-4px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(18px); opacity: 0; } }
+
+        .hero-right.anim-thunder .bolt-shape { animation: boltFlicker 1.6s ease-in-out infinite; }
+        @keyframes boltFlicker { 0%, 40%, 100% { opacity: 1; } 42%, 46% { opacity: 0.25; } }
+
+        .hero-right.anim-snow .snow-dot { animation: snowFall 3s linear infinite; }
+        @keyframes snowFall { 0% { transform: translateY(-6px) translateX(0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(20px) translateX(4px); opacity: 0; } }
+
+        .hero-right.anim-windy .wind-line { animation: windBlow 1.4s ease-in-out infinite; }
+        @keyframes windBlow { 0% { transform: translateX(-6px); opacity: 0; } 40% { opacity: 1; } 100% { transform: translateX(10px); opacity: 0; } }
+
+        /* --- Weather card click affordance --- */
+        .stat-item { cursor: pointer; }
+
+        /* --- Theme variants: change colors only, layout untouched --- */
+        body[data-theme="midnight"] {
+            --bg-gradient: radial-gradient(circle at 50% 30%, #05070f 0%, #000103 70%);
+            --glass-card: rgba(10, 12, 26, 0.5);
+            --accent-blue: #7c9cff;
+        }
+        body[data-theme="ocean"] {
+            --bg-gradient: radial-gradient(circle at 50% 30%, #072a3d 0%, #01131e 70%);
+            --glass-card: rgba(9, 40, 56, 0.5);
+            --accent-blue: #35e5c9;
+        }
+
+        /* --- Reduced motion respect --- */
+        @media (prefers-reduced-motion: reduce) {
+            .sun-ray, .cloud-shape-1, .cloud-shape-2, .rain-drop, .bolt-shape, .snow-dot, .wind-line, .radar-sweep, .sidebar-online-dot { animation: none !important; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-window">
+        <!-- Main Scroll Block Matrix -->
+        <div class="scrollable-content" id="scrollableContent">
+            <div class="pull-refresh-indicator" id="pullRefreshIndicator">
+                <div class="prf-spinner" id="prfSpinner"></div>
+                <span id="pullRefreshText">Pull to Refresh</span>
+            </div>
+            <div class="skeleton-overlay" id="skeletonOverlay">
+                <div class="sk-block sk-hero"></div>
+                <div class="sk-row"><div class="sk-block"></div><div class="sk-block"></div><div class="sk-block"></div><div class="sk-block"></div></div>
+                <div class="sk-block sk-line"></div>
+                <div class="sk-block sk-line"></div>
+                <div class="sk-block sk-line"></div>
+            </div>
+
+            <!-- Global Platform Navigation Header -->
+            <header class="top-bar">
+                <div class="btn-circle" id="hamburgerBtn"><i data-lucide="menu" style="width: 20px;"></i></div>
+                <div class="location-group">
+                    <div class="loc-name" id="locationTrigger" style="cursor:pointer;">
+                        <i data-lucide="map-pin" style="width: 16px; color: var(--accent-blue);"></i>
+                        <span id="currentLocationText">Chennai, India</span>
+                        <i data-lucide="chevron-down" id="locationChevron" style="width: 14px; color: var(--text-secondary);"></i>
+                    </div>
+                    <div class="page-dots">
+                        <span></span>
+                        <span class="active"></span>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+                <div class="btn-circle" id="notificationBtn" style="position:relative;">
+                    <i data-lucide="bell" style="width: 20px;"></i>
+                    <span class="notif-dot" id="notifDot"></span>
+                </div>
+            </header>
+
+            <!-- Weather Alert Banner -->
+            <div class="weather-alert-banner" id="weatherAlertBanner" style="display:none;">
+                <i data-lucide="alert-triangle"></i>
+                <span class="alert-text" id="weatherAlertText">Heavy Rain Expected Tonight</span>
+                <i data-lucide="x" class="alert-close-icon" id="weatherAlertClose"></i>
+            </div>
+
+            <!-- Location Selector Dropdown -->
+            <div class="location-dropdown-backdrop" id="locationBackdrop"></div>
+            <div class="location-dropdown" id="locationDropdown">
+                <div class="loc-dd-item" id="ddCurrentLocation">
+                    <i data-lucide="locate-fixed"></i>Use Current Location
+                </div>
+                <div class="loc-dd-section-title">Recent Locations</div>
+                <div class="loc-dd-item loc-city-option selected" data-city="Chennai, India"><i data-lucide="map-pin"></i>Chennai</div>
+                <div class="loc-dd-item loc-city-option" data-city="Bangalore, India"><i data-lucide="map-pin"></i>Bangalore</div>
+                <div class="loc-dd-item loc-city-option" data-city="Mumbai, India"><i data-lucide="map-pin"></i>Mumbai</div>
+                <div class="loc-dd-item loc-city-option" data-city="Delhi, India"><i data-lucide="map-pin"></i>Delhi</div>
+                <div class="loc-dd-item loc-city-option" data-city="Hyderabad, India"><i data-lucide="map-pin"></i>Hyderabad</div>
+                <div class="loc-dd-divider"></div>
+                <div class="loc-dd-item" id="ddManageLocations"><i data-lucide="settings"></i>Manage Locations</div>
+            </div>
+
+            <!-- Notification Panel -->
+            <div class="notif-backdrop" id="notifBackdrop"></div>
+            <div class="notification-panel" id="notificationPanel">
+                <div class="notif-panel-header">
+                    <h3>Notifications</h3>
+                    <i data-lucide="x" class="notif-close" id="notifCloseBtn"></i>
+                </div>
+                <div class="notif-list" id="notifList"></div>
+                <div class="notif-actions">
+                    <button class="notif-action-btn" id="markAllReadBtn">Mark all as read</button>
+                    <button class="notif-action-btn danger" id="clearAllBtn">Clear all</button>
+                </div>
+            </div>
+
+            <!-- Interactive Inputs Matrix -->
+            <div class="search-row" style="position:relative;">
+                <div class="search-box" id="searchBox">
+                    <i data-lucide="search" style="width: 18px; color: var(--text-secondary); cursor:pointer;" id="searchIconBtn"></i>
+                    <input type="text" placeholder="Search for city..." id="searchInput" autocomplete="off">
+                    <i data-lucide="x" id="clearSearchBtn" style="width:16px;color:var(--text-secondary);cursor:pointer;display:none;"></i>
+                    <div class="mic-btn" id="voiceSearchBtn" title="Voice search"><i data-lucide="mic"></i></div>
+                    <div class="search-spinner" id="searchSpinner"></div>
+                </div>
+                <div class="locate-btn" id="locateBtn">
+                    <i data-lucide="locate-fixed" style="width: 20px;" id="locateIcon"></i>
+                </div>
+                <div class="search-dropdown" id="searchDropdown"></div>
+            </div>
+
+            <!-- Atmosphere Hero Component (Embedded Pure SVG Artwork) -->
+            <section class="hero-weather-card">
+                <div class="favorite-star-btn" id="favoriteStarBtn" title="Save as favorite"><i data-lucide="star"></i></div>
+                <div class="hero-top">
+                    <div class="hero-left">
+                        <div class="temp-txt" id="heroTemp">32°</div>
+                        <div class="cond-txt" id="heroCond">Partly Cloudy</div>
+                        <div class="feel-txt" id="heroFeel">Feels like 36°</div>
+                    </div>
+                    <div class="hero-right" id="heroRight">
+                        <!-- Populated dynamically from the shared weather store (see setHeroIcon) -->
+                    </div>
+                </div>
+                <div class="hero-bottom">
+                    <div class="hi-lo-group">
+                        <span style="color: #ff7640; display:flex; align-items:center; gap:2px;"><i data-lucide="arrow-up" style="width:14px;"></i>33°</span>
+                        <span style="color: #3bf0ff; display:flex; align-items:center; gap:2px;"><i data-lucide="arrow-down" style="width:14px;"></i>26°</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div class="unit-toggle-pill" id="unitTogglePill" title="Switch temperature unit">&deg;C</div>
+                        <div class="sync-pill" id="refreshPill">
+                            <i data-lucide="refresh-cw" style="width: 12px;" id="refreshIcon"></i>
+                            <span id="syncText">Updated just now</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Primary Metrics Panel Grid Structure -->
+            <section class="stats-matrix">
+                <div class="stat-item">
+                    <div class="stat-title"><i data-lucide="droplets" style="width:11px;"></i>Humidity</div>
+                    <div class="stat-val" id="statHumidity">67%</div>
+                    <div class="stat-lbl" id="statHumidityLbl">Moderate</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-title"><i data-lucide="wind" style="width:11px;"></i>Wind</div>
+                    <div class="stat-val"><span id="statWind">12</span> <span style="font-size:9px;">km/h</span></div>
+                    <div class="stat-lbl" id="statWindLbl">NE</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-title"><i data-lucide="leaf" style="width:11px;"></i>AQI</div>
+                    <div class="stat-val" id="statAqi">58</div>
+                    <div class="stat-lbl" id="statAqiLbl">Moderate</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-title"><i data-lucide="sun" style="width:11px;"></i>UV Index</div>
+                    <div class="stat-val" id="statUv">8</div>
+                    <div class="stat-lbl" id="statUvLbl" style="color: #ff3b7e; font-weight: 500;">Very High</div>
+                </div>
+            </section>
+
+            <!-- AI Model Segment Platform Layout Wrapper -->
+            <div class="ai-assist-card">
+                <div class="ai-left">
+                    <div class="ai-avatar"><i data-lucide="bot" style="width: 20px;"></i></div>
+                    <div class="ai-meta">
+                        <div class="ai-tag-row">
+                            <span>AI Weather Prediction</span>
+                            <span class="ai-badge">Beta</span>
+                        </div>
+                        <div class="ai-desc">Light rain expected tomorrow afternoon with a 70% chance.</div>
+                    </div>
+                </div>
+                <button class="glass-action-3d" id="viewPredictionBtn">
+                    View Details
+                    <i data-lucide="chevron-right" style="width: 14px;"></i>
+                </button>
+            </div>
+
+            <!-- Sunrise / Sunset Animated Progress -->
+            <div class="sun-progress-card" id="sunProgressCard">
+                <svg class="sun-progress-arc" id="sunProgressArc" viewBox="0 0 300 90" preserveAspectRatio="xMidYMid meet">
+                    <path d="M15 80 A165 165 0 0 1 285 80" stroke="rgba(255,255,255,0.12)" stroke-width="4" fill="none" stroke-linecap="round"/>
+                    <path id="sunProgressFill" d="M15 80 A165 165 0 0 1 285 80" stroke="url(#sunProgressGrad)" stroke-width="4" fill="none" stroke-linecap="round" stroke-dasharray="316" stroke-dashoffset="316"/>
+                    <defs>
+                        <linearGradient id="sunProgressGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="#ffb703"/>
+                            <stop offset="100%" stop-color="#00d2ff"/>
+                        </linearGradient>
+                    </defs>
+                    <circle id="sunPositionDot" cx="15" cy="80" r="6" fill="#ffd60a" filter="drop-shadow(0 0 6px #ffb703)"/>
+                </svg>
+                <div class="sun-progress-labels">
+                    <span><i data-lucide="sunrise" style="width:12px;"></i> Sunrise<span class="sp-val" id="sunriseVal">05:52 AM</span></span>
+                    <span style="text-align:right;"><i data-lucide="sunset" style="width:12px;"></i> Sunset<span class="sp-val" id="sunsetVal">06:41 PM</span></span>
+                </div>
+                <div class="golden-hour-tag" id="goldenHourTag">Golden Hour: 05:57 - 07:11 PM</div>
+            </div>
+
+            <!-- Weather Radar Preview -->
+            <div class="radar-preview-card" id="radarPreviewCard">
+                <div class="radar-sweep"></div>
+                <div class="radar-label"><i data-lucide="radar" style="width:15px;"></i> Weather Radar</div>
+            </div>
+
+            <!-- Horizontal Inline Timeline Section -->
+            <section style="margin-bottom: 24px;">
+                <div class="section-header-block">
+                    <h3>Hourly Forecast</h3>
+                    <a href="#" class="view-link" id="hourlyViewAll">View All <i data-lucide="chevron-right" style="width: 14px;"></i></a>
+                </div>
+                <div class="hourly-row-scroller" id="hourlyRowScroller">
+                    <!-- Populated dynamically from the shared weather store (see renderHourly) -->
+                </div>
+            </section>
+
+            <!-- Multi-Day Forecast Structural Row Matrix Block -->
+            <section>
+                <div class="section-header-block">
+                    <h3>7-Day Forecast</h3>
+                    <a href="#" class="view-link" id="forecastViewAll">View All <i data-lucide="chevron-right" style="width: 14px;"></i></a>
+                </div>
+                <div class="seven-day-container" id="sevenDayContainer">
+                    <!-- Populated dynamically from the shared weather store (see renderSevenDay) -->
+                </div>
+            </section>
+
+        </div>
+
+        <!-- System Platform Sticky Menu Bar Dock Layout Context -->
+        <nav class="dock-navigation-bar">
+            <div class="dock-tab active-tab" data-page="index.html">
+                <i data-lucide="home"></i>
+                <span>Home</span>
+            </div>
+            <div class="dock-tab" data-page="pg2.html">
+                <i data-lucide="calendar"></i>
+                <span>Forecast</span>
+            </div>
+            
+            <div class="center-hex-anchor">
+                <div class="hex-action-btn" data-page="prediction.html">
+                    <i data-lucide="cloud-lightning" style="width: 26px; height: 26px;"></i>
+                </div>
+            </div>
+            
+            <div class="dock-tab" data-page="pg3.html">
+                <i data-lucide="bar-chart-2"></i>
+                <span>Insights</span>
+            </div>
+            <div class="dock-tab" data-page="pg4.html">
+                <i data-lucide="user"></i>
+                <span>Profile</span>
+            </div>
+        </nav>
+
+        <!-- ============================================================
+             PREMIUM SLIDE-OUT NAVIGATION DRAWER (SIDEBAR)
+             ============================================================ -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+        <aside class="sidebar-drawer" id="sidebarDrawer">
+
+            <!-- Header -->
+            <div class="sidebar-header">
+                <div class="sidebar-logo-wrap">
+                    <div class="sidebar-logo">
+                        <i data-lucide="cloud-lightning" style="width: 24px; height: 24px;"></i>
+                    </div>
+                    <div class="sidebar-online-dot"></div>
+                </div>
+                <div>
+                    <div class="sidebar-app-name">CanPredict</div>
+                    <div class="sidebar-app-sub">AI Weather Intelligence</div>
+                </div>
+            </div>
+
+            <!-- Profile Card -->
+            <div class="sidebar-profile-card" id="sidebarProfileCard" style="cursor:pointer;">
+                <div class="sidebar-avatar">
+                    <i data-lucide="user" style="width: 22px;"></i>
+                </div>
+                <div>
+                    <div class="sidebar-profile-name">Jabez R <span class="sidebar-premium-badge">PREMIUM</span></div>
+                    <div class="sidebar-profile-loc"><i data-lucide="map-pin" style="width: 11px;"></i>Chennai, India</div>
+                </div>
+            </div>
+
+            <!-- Menu Items -->
+            <nav class="sidebar-menu">
+                <div class="sidebar-menu-item" data-page="index.html">
+                    <div class="menu-icon-box"><i data-lucide="home"></i></div>
+                    <span class="menu-label">Home</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" data-page="pg2.html">
+                    <div class="menu-icon-box"><i data-lucide="calendar"></i></div>
+                    <span class="menu-label">Forecast</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" data-page="prediction.html">
+                    <div class="menu-icon-box"><i data-lucide="bot"></i></div>
+                    <span class="menu-label">AI Prediction</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" data-page="pg3.html">
+                    <div class="menu-icon-box"><i data-lucide="bar-chart-2"></i></div>
+                    <span class="menu-label">Insights</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" data-page="pg4.html">
+                    <div class="menu-icon-box"><i data-lucide="user"></i></div>
+                    <span class="menu-label">Profile</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" id="menuFavorites">
+                    <div class="menu-icon-box"><i data-lucide="star"></i></div>
+                    <span class="menu-label">Favorites</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" id="menuSavedLocations">
+                    <div class="menu-icon-box"><i data-lucide="map-pin"></i></div>
+                    <span class="menu-label">Saved Locations</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" id="menuNotifications">
+                    <div class="menu-icon-box"><i data-lucide="bell"></i></div>
+                    <span class="menu-label">Notifications</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" id="menuOfflineMaps">
+                    <div class="menu-icon-box"><i data-lucide="download"></i></div>
+                    <span class="menu-label">Offline Maps</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" id="menuSettings">
+                    <div class="menu-icon-box"><i data-lucide="settings"></i></div>
+                    <span class="menu-label">Settings</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" id="menuHelp">
+                    <div class="menu-icon-box"><i data-lucide="help-circle"></i></div>
+                    <span class="menu-label">Help &amp; Support</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+                <div class="sidebar-menu-item" id="menuPrivacy">
+                    <div class="menu-icon-box"><i data-lucide="file-text"></i></div>
+                    <span class="menu-label">Privacy Policy</span>
+                    <i data-lucide="chevron-right" class="menu-chevron"></i>
+                </div>
+            </nav>
+
+            <!-- Quick Actions -->
+            <div class="sidebar-quick-actions">
+                <div class="sidebar-quick-btn" id="addCityBtn">
+                    <i data-lucide="map-pin"></i>
+                    Add New City
+                </div>
+                <div class="sidebar-quick-btn" id="quickRefreshBtn">
+                    <i data-lucide="refresh-cw"></i>
+                    Refresh Weather
+                </div>
+            </div>
+
+            <!-- App Info Footer -->
+            <div class="sidebar-footer">
+                <div class="sidebar-glow-divider"></div>
+                <div class="sidebar-app-info">
+                    <div class="info-name">CanPredict</div>
+                    <div class="info-version">Version 1.0</div>
+                    <div class="info-tag">"Powered by AI Weather Engine"</div>
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- Toast Notifications -->
+        <div class="toast-container" id="toastContainer"></div>
+
+        <!-- Generic Premium Glass Modal (reused for Add City, Settings, Favorites, etc.) -->
+        <div class="modal-overlay" id="modalOverlay">
+            <div class="modal-box" id="modalBox">
+                <div class="modal-header">
+                    <h3 id="modalTitle">Title</h3>
+                    <i data-lucide="x" class="modal-close" id="modalCloseBtn"></i>
+                </div>
+                <div class="modal-body" id="modalBody"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Init dynamic scalable vector structural assets
+        lucide.createIcons();
+        WeatherApp.icons.ensureDefs();
+        WeatherApp.overlay.bindEsc();
+
+        // Latest rendered metrics/prediction, kept around so popups & the
+        // alert banner can read live values without re-deriving them.
+        var currentMetrics = null;
+        var currentDayObj = null;
+        var currentHourObj = null;
+
+        // ---------------------------------------------------------------
+        // Premium Slide-Out Navigation Drawer (Sidebar)
+        // ---------------------------------------------------------------
+        (function () {
+            const hamburgerBtn = document.getElementById('hamburgerBtn');
+            const overlay = document.getElementById('sidebarOverlay');
+            const drawer = document.getElementById('sidebarDrawer');
+            const scrollableContent = document.querySelector('.scrollable-content');
+
+            let isOpen = false;
+
+            function openSidebar() {
+                WeatherApp.overlay.closeAllExcept('sidebar');
+                isOpen = true;
+                overlay.classList.add('active');
+                drawer.classList.add('active');
+                if (scrollableContent) scrollableContent.style.overflowY = 'hidden';
+                document.body.style.overflow = 'hidden';
+                WeatherApp.overlay.opened('sidebar');
+            }
+
+            function closeSidebar() {
+                isOpen = false;
+                overlay.classList.remove('active');
+                drawer.classList.remove('active');
+                if (scrollableContent) scrollableContent.style.overflowY = '';
+                document.body.style.overflow = '';
+                WeatherApp.overlay.closed('sidebar');
+            }
+
+            function toggleSidebar() {
+                isOpen ? closeSidebar() : openSidebar();
+            }
+
+            WeatherApp.overlay.register('sidebar', closeSidebar);
+
+            if (hamburgerBtn) {
+                hamburgerBtn.addEventListener('click', toggleSidebar);
+            }
+
+            if (overlay) {
+                overlay.addEventListener('click', closeSidebar);
+            }
+
+            // ---------------------------------------------------------------
+            // Sidebar navigation: mark the active menu item based on the
+            // current page, then wire up click-to-navigate for every item
+            // that declares a data-page target.
+            // ---------------------------------------------------------------
+            function getCurrentPage() {
+                const path = window.location.pathname.split('/').pop();
+                return path === '' ? 'index.html' : path;
+            }
+
+            function setActiveMenuItem() {
+                const currentPage = getCurrentPage();
+                document.querySelectorAll('[data-page]').forEach(function (item) {
+                    item.classList.toggle('active-menu-item', item.dataset.page === currentPage);
+                });
+            }
+
+            function navigateTo(url) {
+                if (isOpen) {
+                    closeSidebar();
+                    setTimeout(function () {
+                        window.location.href = url;
+                    }, 150);
+                } else {
+                    window.location.href = url;
+                }
+            }
+
+            setActiveMenuItem();
+
+            // Ripple click animation for menu items + navigation
+            document.querySelectorAll('.sidebar-menu-item').forEach(function (item) {
+                item.addEventListener('click', function (e) {
+                    const rect = item.getBoundingClientRect();
+                    const ripple = document.createElement('span');
+                    const size = Math.max(rect.width, rect.height);
+                    ripple.className = 'menu-ripple';
+                    ripple.style.width = ripple.style.height = size + 'px';
+                    ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+                    ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+                    item.appendChild(ripple);
+                    ripple.addEventListener('animationend', function () {
+                        ripple.remove();
+                    });
+
+                    const targetPage = item.dataset.page;
+                    if (targetPage) {
+                        navigateTo(targetPage);
+                    }
+                });
+            });
+
+            // All bottom dock-nav tabs + the center AI hex button also navigate
+            document.querySelectorAll('.dock-navigation-bar [data-page]').forEach(function (item) {
+                item.addEventListener('click', function () { navigateTo(item.dataset.page); });
+            });
+
+            // Magnetic hover effect for quick action buttons
+            document.querySelectorAll('.sidebar-quick-btn').forEach(function (btn) {
+                btn.addEventListener('mousemove', function (e) {
+                    const rect = btn.getBoundingClientRect();
+                    const relX = e.clientX - rect.left - rect.width / 2;
+                    const relY = e.clientY - rect.top - rect.height / 2;
+                    btn.style.transform = 'translate(' + (relX * 0.12) + 'px,' + (-3 + relY * 0.12) + 'px)';
+                });
+                btn.addEventListener('mouseleave', function () {
+                    btn.style.transform = '';
+                });
+                btn.addEventListener('click', function (e) {
+                    const rect = btn.getBoundingClientRect();
+                    const ripple = document.createElement('span');
+                    const size = Math.max(rect.width, rect.height) * 1.4;
+                    ripple.className = 'menu-ripple';
+                    ripple.style.width = ripple.style.height = size + 'px';
+                    ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+                    ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+                    btn.appendChild(ripple);
+                    ripple.addEventListener('animationend', function () {
+                        ripple.remove();
+                    });
+                });
+            });
+
+            window.closeSidebar = closeSidebar;
+            window.openSidebar = openSidebar;
+        })();
+
+        // ---------------------------------------------------------------
+        // Home Page Content Navigation ("View All" links)
+        // ---------------------------------------------------------------
+        (function () {
+            const viewPredictionBtn = document.getElementById('viewPredictionBtn');
+            const hourlyViewAll = document.getElementById('hourlyViewAll');
+            const forecastViewAll = document.getElementById('forecastViewAll');
+
+            if (viewPredictionBtn) {
+                viewPredictionBtn.addEventListener('click', function () {
+                    window.location.href = 'prediction.html';
+                });
+            }
+
+            if (hourlyViewAll) {
+                hourlyViewAll.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    window.location.href = 'pg2.html';
+                });
+            }
+
+            if (forecastViewAll) {
+                forecastViewAll.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    window.location.href = 'pg2.html';
+                });
+            }
+        })();
+
+        // ---------------------------------------------------------------
+        // Toast Notification Helper
+        // ---------------------------------------------------------------
+        function showToast(message, iconName, isError) {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = 'glass-toast' + (isError ? ' error' : '');
+            toast.innerHTML = '<i data-lucide="' + (iconName || (isError ? 'alert-triangle' : 'check-circle')) + '"></i><span>' + message + '</span>';
+            container.appendChild(toast);
+            lucide.createIcons();
+            setTimeout(function () {
+                toast.remove();
+            }, 4000);
+        }
+
+        // ---------------------------------------------------------------
+        // Generic Premium Glass Modal
+        // ---------------------------------------------------------------
+        (function () {
+            const modalOverlay = document.getElementById('modalOverlay');
+            const modalBox = document.getElementById('modalBox');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalBody = document.getElementById('modalBody');
+            const modalCloseBtn = document.getElementById('modalCloseBtn');
+
+            function openModal(title, bodyHtml) {
+                WeatherApp.overlay.closeAllExcept('modal');
+                modalTitle.textContent = title;
+                modalBody.innerHTML = bodyHtml;
+                modalOverlay.classList.add('active');
+                lucide.createIcons();
+                WeatherApp.overlay.opened('modal');
+            }
+
+            function closeModal() {
+                modalOverlay.classList.remove('active');
+                WeatherApp.overlay.closed('modal');
+            }
+
+            WeatherApp.overlay.register('modal', closeModal);
+
+            if (modalCloseBtn) modalCloseBtn.addEventListener('click', closeModal);
+            if (modalOverlay) {
+                modalOverlay.addEventListener('click', function (e) {
+                    if (e.target === modalOverlay) closeModal();
+                });
+            }
+            if (modalBox) {
+                modalBox.addEventListener('click', function (e) { e.stopPropagation(); });
+            }
+
+            window.openModal = openModal;
+            window.closeModal = closeModal;
+        })();
+
+        // ---------------------------------------------------------------
+        // Notification Panel
+        // ---------------------------------------------------------------
+        (function () {
+            const notifBtn = document.getElementById('notificationBtn');
+            const notifBackdrop = document.getElementById('notifBackdrop');
+            const notifPanel = document.getElementById('notificationPanel');
+            const notifCloseBtn = document.getElementById('notifCloseBtn');
+            const notifList = document.getElementById('notifList');
+            const notifDot = document.getElementById('notifDot');
+            const markAllReadBtn = document.getElementById('markAllReadBtn');
+            const clearAllBtn = document.getElementById('clearAllBtn');
+
+            let notifications = [
+                { id: 1, icon: 'cloud-rain', title: 'Rain expected tomorrow', time: '2m ago', desc: 'Light to moderate rain expected tomorrow afternoon with 70% chance.', unread: true },
+                { id: 2, icon: 'bot', title: 'AI Prediction Updated', time: '25m ago', desc: 'Your 7-day AI weather prediction model has refreshed with new data.', unread: true },
+                { id: 3, icon: 'refresh-cw', title: 'Weather synced successfully', time: '1h ago', desc: 'Latest weather data has been synced across all your saved locations.', unread: true },
+                { id: 4, icon: 'sun', title: 'Severe UV Alert', time: '3h ago', desc: 'UV index has reached very high levels. Limit outdoor exposure today.', unread: false }
+            ];
+
+            function renderNotifications() {
+                if (!notifications.length) {
+                    notifList.innerHTML = '<div class="notif-empty">No notifications right now.</div>';
+                } else {
+                    notifList.innerHTML = notifications.map(function (n) {
+                        return '<div class="notif-item ' + (n.unread ? 'unread' : '') + '" data-id="' + n.id + '">' +
+                            '<div class="notif-icon-box"><i data-lucide="' + n.icon + '"></i></div>' +
+                            '<div class="notif-content">' +
+                                '<div class="notif-title-row"><span class="notif-title">' + n.title + '</span><span class="notif-time">' + n.time + '</span></div>' +
+                                '<div class="notif-desc">' + n.desc + '</div>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('');
+                }
+                lucide.createIcons();
+                updateDot();
+            }
+
+            function updateDot() {
+                const hasUnread = notifications.some(function (n) { return n.unread; });
+                if (notifDot) notifDot.classList.toggle('hidden', !hasUnread);
+            }
+
+            function openNotifications() {
+                WeatherApp.overlay.closeAllExcept('notifications');
+                renderNotifications();
+                notifBackdrop.classList.add('active');
+                notifPanel.classList.add('active');
+                WeatherApp.overlay.opened('notifications');
+            }
+
+            function closeNotifications() {
+                notifBackdrop.classList.remove('active');
+                notifPanel.classList.remove('active');
+                WeatherApp.overlay.closed('notifications');
+            }
+
+            WeatherApp.overlay.register('notifications', closeNotifications);
+
+            if (notifBtn) notifBtn.addEventListener('click', openNotifications);
+            if (notifCloseBtn) notifCloseBtn.addEventListener('click', closeNotifications);
+            if (notifBackdrop) notifBackdrop.addEventListener('click', closeNotifications);
+
+            if (notifList) {
+                notifList.addEventListener('click', function (e) {
+                    const item = e.target.closest('.notif-item');
+                    if (!item) return;
+                    const id = parseInt(item.dataset.id, 10);
+                    const n = notifications.find(function (x) { return x.id === id; });
+                    if (n) n.unread = false;
+                    renderNotifications();
+                });
+            }
+
+            if (markAllReadBtn) {
+                markAllReadBtn.addEventListener('click', function () {
+                    notifications.forEach(function (n) { n.unread = false; });
+                    renderNotifications();
+                });
+            }
+
+            if (clearAllBtn) {
+                clearAllBtn.addEventListener('click', function () {
+                    notifications = [];
+                    renderNotifications();
+                });
+            }
+
+            renderNotifications();
+
+            window.openNotificationsPanel = openNotifications;
+            window.closeNotificationsPanel = closeNotifications;
+        })();
+
+        // ---------------------------------------------------------------
+        // Location Selector Dropdown
+        // ---------------------------------------------------------------
+        (function () {
+            const locationTrigger = document.getElementById('locationTrigger');
+            const locationBackdrop = document.getElementById('locationBackdrop');
+            const locationDropdown = document.getElementById('locationDropdown');
+            const ddCurrentLocation = document.getElementById('ddCurrentLocation');
+            const ddManageLocations = document.getElementById('ddManageLocations');
+
+            function openLocationDropdown() {
+                WeatherApp.overlay.closeAllExcept('locationDropdown');
+                locationBackdrop.classList.add('active');
+                locationDropdown.classList.add('active');
+                WeatherApp.overlay.opened('locationDropdown');
+            }
+
+            function closeLocationDropdown() {
+                locationBackdrop.classList.remove('active');
+                locationDropdown.classList.remove('active');
+                WeatherApp.overlay.closed('locationDropdown');
+            }
+
+            WeatherApp.overlay.register('locationDropdown', closeLocationDropdown);
+
+            if (locationTrigger) {
+                locationTrigger.addEventListener('click', function () {
+                    locationDropdown.classList.contains('active') ? closeLocationDropdown() : openLocationDropdown();
+                });
+            }
+
+            if (locationBackdrop) locationBackdrop.addEventListener('click', closeLocationDropdown);
+
+            document.querySelectorAll('.loc-city-option').forEach(function (item) {
+                item.addEventListener('click', function () {
+                    const cityQuery = item.dataset.city;
+                    WeatherApp.store.setCity(cityQuery);
+                    document.querySelectorAll('.loc-city-option').forEach(function (o) { o.classList.remove('selected'); });
+                    item.classList.add('selected');
+                    closeLocationDropdown();
+                    renderAll();
+                    showToast('Location switched to ' + cityQuery.split(',')[0], 'map-pin');
+                });
+            });
+
+            if (ddCurrentLocation) {
+                ddCurrentLocation.addEventListener('click', function () {
+                    closeLocationDropdown();
+                    if (window.useCurrentGeoLocation) window.useCurrentGeoLocation();
+                });
+            }
+
+            if (ddManageLocations) {
+                ddManageLocations.addEventListener('click', function () {
+                    closeLocationDropdown();
+                    openModal('Saved Locations', buildSavedLocationsHtml());
+                });
+            }
+
+            window.closeLocationDropdown = closeLocationDropdown;
+        })();
+
+        // ---------------------------------------------------------------
+        // Search Bar: history, live shared-data results, validation,
+        // spinner, errors, keyboard navigation & voice search
+        // ---------------------------------------------------------------
+        (function () {
+            const searchInput = document.getElementById('searchInput');
+            const searchIconBtn = document.getElementById('searchIconBtn');
+            const clearSearchBtn = document.getElementById('clearSearchBtn');
+            const searchSpinner = document.getElementById('searchSpinner');
+            const searchDropdown = document.getElementById('searchDropdown');
+            const voiceSearchBtn = document.getElementById('voiceSearchBtn');
+
+            var CITY_DB = Object.keys(WeatherApp.CITY_PROFILES).map(function (k) { return WeatherApp.CITY_PROFILES[k].display; });
+            var activeSuggestionIndex = -1;
+
+            function openDropdown() {
+                renderDropdownDefault();
+                searchDropdown.classList.add('active');
+            }
+
+            function closeDropdown() {
+                searchDropdown.classList.remove('active');
+            }
+
+            function showClearBtn(show) {
+                clearSearchBtn.style.display = show ? 'block' : 'none';
+            }
+
+            function renderDropdownDefault() {
+                const state = WeatherApp.store.load();
+                if (!state.searchHistory.length) {
+                    searchDropdown.innerHTML = '<div class="search-dropdown-title">Recent Searches</div><div style="padding:10px; font-size:12px; color:var(--text-secondary);">No recent searches yet.</div>';
+                    lucide.createIcons();
+                    return;
+                }
+                searchDropdown.innerHTML = '<div class="search-dropdown-title">Recent Searches <span class="clear-hist" id="clearHistBtn">Clear</span></div>' +
+                    state.searchHistory.slice().reverse().map(function (city) {
+                        return '<div class="search-history-item" data-city="' + city + '"><i data-lucide="history"></i>' + city + '</div>';
+                    }).join('');
+                lucide.createIcons();
+                const clearHistBtn = document.getElementById('clearHistBtn');
+                if (clearHistBtn) {
+                    clearHistBtn.addEventListener('click', function (e) {
+                        e.stopPropagation();
+                        WeatherApp.store.update({ searchHistory: [] });
+                        renderDropdownDefault();
+                    });
+                }
+                searchDropdown.querySelectorAll('.search-history-item').forEach(function (item) {
+                    item.addEventListener('click', function () {
+                        searchInput.value = item.dataset.city;
+                        performSearch(item.dataset.city);
+                    });
+                });
+            }
+
+            function renderSuggestions(query) {
+                var q = query.trim().toLowerCase();
+                if (!q) return false;
+                var matches = CITY_DB.filter(function (c) { return c.toLowerCase().indexOf(q) === 0; });
+                if (!matches.length) {
+                    matches = CITY_DB.filter(function (c) { return c.toLowerCase().indexOf(q) !== -1; });
+                }
+                matches = matches.slice(0, 6);
+                activeSuggestionIndex = -1;
+                if (!matches.length) {
+                    searchDropdown.innerHTML = '<div class="search-error"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>City not found. Try Chennai, Bangalore, Mumbai, Delhi, Hyderabad, Chengalpattu, Kolkata, Pune, Madurai, Kochi, or Jaipur.</div>';
+                } else {
+                    searchDropdown.innerHTML = '<div class="search-dropdown-title">Suggestions</div>' +
+                        matches.map(function (c) {
+                            return '<div class="search-result-item suggestion-item" data-city="' + c + '"><span class="search-result-city"><i data-lucide="map-pin"></i>' + c + '</span></div>';
+                        }).join('');
+                    searchDropdown.querySelectorAll('.suggestion-item').forEach(function (item) {
+                        item.addEventListener('click', function () {
+                            searchInput.value = item.dataset.city;
+                            performSearch(item.dataset.city);
+                        });
+                    });
+                }
+                if (window.lucide) lucide.createIcons();
+                searchDropdown.classList.add('active');
+                return true;
+            }
+
+            function performSearch(rawQuery) {
+                const query = (rawQuery !== undefined ? rawQuery : searchInput.value).trim();
+
+                if (!query) {
+                    searchDropdown.innerHTML = '<div class="search-error"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>Please enter a city name to search.</div>';
+                    searchDropdown.classList.add('active');
+                    lucide.createIcons();
+                    return;
+                }
+
+                searchSpinner.classList.add('active');
+                closeDropdown();
+
+                setTimeout(function () {
+                    searchSpinner.classList.remove('active');
+                    const key = WeatherApp.resolveCityKey(query);
+
+                    if (key) {
+                        const display = WeatherApp.CITY_PROFILES[key].display;
+                        WeatherApp.store.setCity(key);
+                        renderAll();
+                        searchDropdown.innerHTML = '<div class="search-dropdown-title">Result</div>' +
+                            '<div class="search-result-item"><span class="search-result-city"><i data-lucide="map-pin"></i>' + display + '</span><span class="search-result-temp">' + currentMetrics.temp + '&deg; &middot; ' + currentDayObj.condition + '</span></div>';
+                        searchDropdown.classList.add('active');
+                        lucide.createIcons();
+                        showToast('Showing weather for ' + display, 'map-pin');
+                    } else {
+                        searchDropdown.innerHTML = '<div class="search-error"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>City not found. Please check the spelling and try again.</div>';
+                        searchDropdown.classList.add('active');
+                        lucide.createIcons();
+                    }
+                }, 700);
+            }
+
+            if (searchInput) {
+                searchInput.addEventListener('focus', function () {
+                    if (!searchInput.value) openDropdown();
+                });
+                searchInput.addEventListener('input', function () {
+                    showClearBtn(!!searchInput.value);
+                    if (!searchInput.value) { openDropdown(); return; }
+                    renderSuggestions(searchInput.value);
+                });
+                searchInput.addEventListener('keydown', function (e) {
+                    var items = searchDropdown.querySelectorAll('.suggestion-item');
+                    if (e.key === 'ArrowDown' && items.length) {
+                        e.preventDefault();
+                        activeSuggestionIndex = Math.min(items.length - 1, activeSuggestionIndex + 1);
+                        items.forEach(function (it, i) { it.classList.toggle('active', i === activeSuggestionIndex); });
+                        return;
+                    }
+                    if (e.key === 'ArrowUp' && items.length) {
+                        e.preventDefault();
+                        activeSuggestionIndex = Math.max(0, activeSuggestionIndex - 1);
+                        items.forEach(function (it, i) { it.classList.toggle('active', i === activeSuggestionIndex); });
+                        return;
+                    }
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (activeSuggestionIndex >= 0 && items[activeSuggestionIndex]) {
+                            performSearch(items[activeSuggestionIndex].dataset.city);
+                        } else {
+                            performSearch();
+                        }
+                    }
+                });
+            }
+
+            if (searchIconBtn) {
+                searchIconBtn.addEventListener('click', function () {
+                    searchIconBtn.style.transform = 'scale(0.85)';
+                    setTimeout(function () { searchIconBtn.style.transform = ''; }, 150);
+                    performSearch();
+                });
+            }
+
+            if (clearSearchBtn) {
+                clearSearchBtn.addEventListener('click', function () {
+                    searchInput.value = '';
+                    showClearBtn(false);
+                    closeDropdown();
+                    searchInput.focus();
+                });
+            }
+
+            if (voiceSearchBtn) {
+                voiceSearchBtn.addEventListener('click', function () {
+                    var SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    if (!SpeechRecognitionCtor) {
+                        showToast('Voice search is not supported in this browser.', 'mic-off', true);
+                        return;
+                    }
+                    var recognition = new SpeechRecognitionCtor();
+                    recognition.lang = 'en-US';
+                    recognition.interimResults = false;
+                    recognition.maxAlternatives = 1;
+                    voiceSearchBtn.classList.add('listening');
+                    recognition.start();
+                    recognition.onresult = function (event) {
+                        var transcript = event.results[0][0].transcript;
+                        searchInput.value = transcript;
+                        performSearch(transcript);
+                    };
+                    recognition.onerror = function () {
+                        showToast('Could not hear that. Please try again.', 'mic-off', true);
+                    };
+                    recognition.onend = function () { voiceSearchBtn.classList.remove('listening'); };
+                });
+            }
+
+            document.addEventListener('click', function (e) {
+                if (!e.target.closest('#searchBox') && !e.target.closest('#searchDropdown')) {
+                    closeDropdown();
+                }
+            });
+
+            WeatherApp.overlay.register('searchDropdown', closeDropdown);
+        })();
+
+        // ---------------------------------------------------------------
+        // Current Location Button (Geolocation API)
+        // ---------------------------------------------------------------
+        (function () {
+            const locateBtn = document.getElementById('locateBtn');
+            const locateIcon = document.getElementById('locateIcon');
+
+            function useCurrentGeoLocation() {
+                if (!('geolocation' in navigator)) {
+                    showToast("Your browser doesn't support location services.", 'alert-triangle', true);
+                    return;
+                }
+
+                locateBtn.classList.add('loading');
+                showSkeleton();
+
+                navigator.geolocation.getCurrentPosition(
+                    function (position) {
+                        locateBtn.classList.remove('loading');
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+                        WeatherApp.store.setCustomLocation('Current Location', lat, lng);
+                        renderAll();
+                        hideSkeleton();
+                        showToast('Location found: ' + lat.toFixed(3) + ', ' + lng.toFixed(3), 'locate-fixed');
+                    },
+                    function (error) {
+                        locateBtn.classList.remove('loading');
+                        hideSkeleton();
+                        if (error.code === error.PERMISSION_DENIED) {
+                            showToast('Location permission denied. Enable it in browser settings to use this feature.', 'alert-triangle', true);
+                        } else {
+                            showToast('Unable to retrieve your location right now.', 'alert-triangle', true);
+                        }
+                    },
+                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                );
+            }
+
+            if (locateBtn) {
+                locateBtn.addEventListener('click', useCurrentGeoLocation);
+            }
+
+            window.useCurrentGeoLocation = useCurrentGeoLocation;
+        })();
+
+        // ---------------------------------------------------------------
+        // Refresh Weather — single shared refresh path used by the
+        // sync-pill, the sidebar quick action, and pull-to-refresh.
+        // ---------------------------------------------------------------
+        var secondsAgo = 0;
+        var tickInterval = null;
+        var isRefreshing = false;
+
+        function startTicking() {
+            clearInterval(tickInterval);
+            secondsAgo = 0;
+            var syncText = document.getElementById('syncText');
+            if (syncText) syncText.textContent = 'Updated just now';
+            tickInterval = setInterval(function () {
+                secondsAgo++;
+                var el = document.getElementById('syncText');
+                if (!el) return;
+                if (secondsAgo < 60) {
+                    el.textContent = 'Updated ' + secondsAgo + (secondsAgo === 1 ? ' second ago' : ' seconds ago');
+                } else {
+                    var mins = Math.floor(secondsAgo / 60);
+                    el.textContent = 'Updated ' + mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+                }
+            }, 1000);
+        }
+
+        function refreshWeather(done) {
+            if (isRefreshing) { if (done) done(); return; }
+            isRefreshing = true;
+            var refreshIcon = document.getElementById('refreshIcon');
+            var syncText = document.getElementById('syncText');
+            if (refreshIcon) refreshIcon.classList.add('refresh-spin');
+            if (syncText) syncText.textContent = 'Refreshing...';
+            showSkeleton();
+
+            setTimeout(function () {
+                // Re-derive everything from the shared store (a real backend
+                // swap would simply re-fetch here instead).
+                renderAll();
+                hideSkeleton();
+                if (refreshIcon) refreshIcon.classList.remove('refresh-spin');
+                startTicking();
+                isRefreshing = false;
+                showToast('Weather refreshed successfully', 'refresh-cw');
+                if (done) done();
+            }, 900);
+        }
+
+        (function () {
+            var refreshPill = document.getElementById('refreshPill');
+            var quickRefreshBtn = document.getElementById('quickRefreshBtn');
+            if (refreshPill) refreshPill.addEventListener('click', function () { refreshWeather(); });
+            if (quickRefreshBtn) quickRefreshBtn.addEventListener('click', function () { refreshWeather(); });
+            window.refreshWeatherData = refreshWeather;
+        })();
+
+        // ---------------------------------------------------------------
+        // Sidebar Profile Card -> pg4.html
+        // ---------------------------------------------------------------
+        (function () {
+            const profileCard = document.getElementById('sidebarProfileCard');
+            if (!profileCard) return;
+
+            profileCard.addEventListener('click', function (e) {
+                const rect = profileCard.getBoundingClientRect();
+                const ripple = document.createElement('span');
+                const size = Math.max(rect.width, rect.height) * 1.2;
+                ripple.className = 'menu-ripple';
+                ripple.style.width = ripple.style.height = size + 'px';
+                ripple.style.left = (e.clientX - rect.left - size / 2) + 'px';
+                ripple.style.top = (e.clientY - rect.top - size / 2) + 'px';
+                profileCard.style.position = 'relative';
+                profileCard.style.overflow = 'hidden';
+                profileCard.appendChild(ripple);
+                ripple.addEventListener('animationend', function () { ripple.remove(); });
+
+                if (window.closeSidebar) {
+                    window.closeSidebar();
+                    setTimeout(function () { window.location.href = 'pg4.html'; }, 150);
+                } else {
+                    window.location.href = 'pg4.html';
+                }
+            });
+        })();
+
+        // ---------------------------------------------------------------
+        // Sidebar Quick Actions: Add New City
+        // ---------------------------------------------------------------
+        (function () {
+            const addCityBtn = document.getElementById('addCityBtn');
+
+            function buildAddCityHtml() {
+                return '<input type="text" class="modal-input" id="newCityInput" placeholder="Enter city name...">' +
+                    '<div class="modal-btn-row">' +
+                        '<button class="modal-btn cancel" id="cancelAddCityBtn">Cancel</button>' +
+                        '<button class="modal-btn primary" id="confirmAddCityBtn">Add</button>' +
+                    '</div>';
+            }
+
+            if (addCityBtn) {
+                addCityBtn.addEventListener('click', function () {
+                    openModal('Add New City', buildAddCityHtml());
+                    const newCityInput = document.getElementById('newCityInput');
+                    const cancelBtn = document.getElementById('cancelAddCityBtn');
+                    const confirmBtn = document.getElementById('confirmAddCityBtn');
+
+                    if (newCityInput) setTimeout(function () { newCityInput.focus(); }, 300);
+                    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+                    if (confirmBtn) {
+                        confirmBtn.addEventListener('click', function () {
+                            const val = newCityInput.value.trim();
+                            if (!val) {
+                                newCityInput.style.borderColor = '#ff6b8a';
+                                newCityInput.placeholder = 'Please enter a city name';
+                                return;
+                            }
+                            const key = WeatherApp.resolveCityKey(val);
+                            if (key) {
+                                WeatherApp.store.setCity(key);
+                            } else {
+                                // Unknown city name — still generate a full,
+                                // consistent dataset for it via a deterministic
+                                // pseudo-coordinate hash.
+                                var hash = 0;
+                                for (var i = 0; i < val.length; i++) hash += val.charCodeAt(i) * (i + 1);
+                                WeatherApp.store.setCustomLocation(val, hash % 90, (hash * 3) % 180);
+                            }
+                            renderAll();
+                            closeModal();
+                            showToast(val + ' added to your locations', 'map-pin');
+                        });
+                    }
+                    if (newCityInput) {
+                        newCityInput.addEventListener('keydown', function (e) {
+                            if (e.key === 'Enter') confirmBtn.click();
+                        });
+                    }
+                });
+            }
+        })();
+
+        // ---------------------------------------------------------------
+        // Sidebar Extra Menu: Favorites / Saved Locations / Notifications /
+        // Offline Maps / Settings / Help & Support / Privacy Policy
+        // ---------------------------------------------------------------
+        function buildSavedLocationsHtml() {
+            var state = WeatherApp.store.load();
+            var names = state.searchHistory.length ? state.searchHistory : [state.cityDisplay];
+            return names.map(function (name) {
+                var key = WeatherApp.resolveCityKey(name);
+                var data = WeatherApp.getCityData(key || state.cityKey);
+                var metrics = WeatherApp.generateMetrics(data.key, data.days[0]);
+                return '<div class="list-card-item"><div class="list-card-icon"><i data-lucide="map-pin"></i></div>' +
+                    '<div class="list-card-meta"><div class="list-card-city">' + name.split(',')[0] + '</div><div class="list-card-sub">' + name + '</div></div>' +
+                    '<div class="list-card-temp">' + WeatherApp.formatTemp(metrics.temp, state.unit) + '</div></div>';
+            }).join('');
+        }
+
+        function buildFavoritesHtml() {
+            var state = WeatherApp.store.load();
+            if (!state.favorites.length) {
+                return '<div class="coming-soon-box"><div class="cs-icon"><i data-lucide="star"></i></div><h4>No Favorites Yet</h4><p>Tap the star on the Home screen to save a city as a favorite.</p></div>';
+            }
+            return state.favorites.map(function (name) {
+                var key = WeatherApp.resolveCityKey(name);
+                var data = WeatherApp.getCityData(key || state.cityKey);
+                var metrics = WeatherApp.generateMetrics(data.key, data.days[0]);
+                return '<div class="list-card-item"><div class="list-card-icon"><i data-lucide="star"></i></div>' +
+                    '<div class="list-card-meta"><div class="list-card-city">' + name.split(',')[0] + '</div><div class="list-card-sub">' + data.days[0].condition + '</div></div>' +
+                    '<div class="list-card-temp">' + WeatherApp.formatTemp(metrics.temp, state.unit) + '</div></div>';
+            }).join('');
+        }
+
+        (function () {
+            const menuFavorites = document.getElementById('menuFavorites');
+            const menuSavedLocations = document.getElementById('menuSavedLocations');
+            const menuNotifications = document.getElementById('menuNotifications');
+            const menuOfflineMaps = document.getElementById('menuOfflineMaps');
+            const menuSettings = document.getElementById('menuSettings');
+            const menuHelp = document.getElementById('menuHelp');
+            const menuPrivacy = document.getElementById('menuPrivacy');
+
+            if (menuFavorites) {
+                menuFavorites.addEventListener('click', function () {
+                    openModal('Favorites', buildFavoritesHtml());
+                });
+            }
+
+            if (menuSavedLocations) {
+                menuSavedLocations.addEventListener('click', function () {
+                    openModal('Saved Locations', buildSavedLocationsHtml());
+                });
+            }
+
+            if (menuNotifications) {
+                menuNotifications.addEventListener('click', function () {
+                    if (window.closeSidebar) window.closeSidebar();
+                    setTimeout(function () {
+                        if (window.openNotificationsPanel) window.openNotificationsPanel();
+                    }, 200);
+                });
+            }
+
+            if (menuOfflineMaps) {
+                menuOfflineMaps.addEventListener('click', function () {
+                    openModal('Offline Maps', '<div class="coming-soon-box"><div class="cs-icon"><i data-lucide="download"></i></div><h4>Feature Coming Soon</h4><p>Offline maps will let you access weather visuals without an internet connection.</p></div>');
+                });
+            }
+
+            if (menuSettings) {
+                menuSettings.addEventListener('click', function () {
+                    openModal('Settings', buildSettingsHtml());
+                    wireSettingsInteractions();
+                });
+            }
+
+            if (menuHelp) {
+                menuHelp.addEventListener('click', function () {
+                    openModal('Help & Support', buildHelpHtml());
+                    wireHelpInteractions();
+                });
+            }
+
+            if (menuPrivacy) {
+                menuPrivacy.addEventListener('click', function () {
+                    openModal('Privacy Policy', buildPrivacyHtml());
+                });
+            }
+        })();
+
+        function buildSettingsHtml() {
+            var state = WeatherApp.store.load();
+            return '' +
+                '<div class="settings-group">' +
+                    '<div class="settings-label">Temperature Unit</div>' +
+                    '<div class="settings-toggle-row">' +
+                        '<div class="settings-pill' + (state.unit === 'C' ? ' active' : '') + '" data-group="temp" data-value="C">\u00b0C</div>' +
+                        '<div class="settings-pill' + (state.unit === 'F' ? ' active' : '') + '" data-group="temp" data-value="F">\u00b0F</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="settings-group">' +
+                    '<div class="settings-label">Wind Speed Unit</div>' +
+                    '<div class="settings-toggle-row">' +
+                        '<div class="settings-pill' + (state.windUnit === 'kmh' ? ' active' : '') + '" data-group="wind" data-value="kmh">km/h</div>' +
+                        '<div class="settings-pill' + (state.windUnit === 'mph' ? ' active' : '') + '" data-group="wind" data-value="mph">mph</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="settings-group">' +
+                    '<div class="settings-label">Theme</div>' +
+                    '<div class="settings-toggle-row" style="flex-wrap:wrap;">' +
+                        '<div class="settings-pill' + (state.theme === 'dark' ? ' active' : '') + '" data-group="theme" data-value="dark">Dark</div>' +
+                        '<div class="settings-pill' + (state.theme === 'midnight' ? ' active' : '') + '" data-group="theme" data-value="midnight">Midnight</div>' +
+                        '<div class="settings-pill' + (state.theme === 'ocean' ? ' active' : '') + '" data-group="theme" data-value="ocean">Ocean</div>' +
+                        '<div class="settings-pill' + (state.theme === 'auto' ? ' active' : '') + '" data-group="theme" data-value="auto">Auto</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="settings-group">' +
+                    '<div class="settings-switch-row">' +
+                        '<div class="settings-label" style="margin-bottom:0;">Notifications</div>' +
+                        '<div class="switch-toggle on" id="notifSwitch"></div>' +
+                    '</div>' +
+                '</div>';
+        }
+
+        function wireSettingsInteractions() {
+            document.querySelectorAll('.settings-pill').forEach(function (pill) {
+                pill.addEventListener('click', function () {
+                    const group = pill.dataset.group;
+                    const value = pill.dataset.value;
+                    document.querySelectorAll('.settings-pill[data-group="' + group + '"]').forEach(function (p) {
+                        p.classList.remove('active');
+                    });
+                    pill.classList.add('active');
+                    if (group === 'temp') WeatherApp.store.update({ unit: value });
+                    else if (group === 'wind') WeatherApp.store.update({ windUnit: value });
+                    else if (group === 'theme') setTheme(value);
+                    renderAll();
+                    showToast('Preference updated', 'check-circle');
+                });
+            });
+            const notifSwitch = document.getElementById('notifSwitch');
+            if (notifSwitch) {
+                notifSwitch.addEventListener('click', function () {
+                    notifSwitch.classList.toggle('on');
+                });
+            }
+        }
+
+        function buildHelpHtml() {
+            return '' +
+                '<div class="faq-item"><div class="faq-q">How accurate is the AI weather prediction?</div><div class="faq-a">Our AI model blends multiple forecast sources and typically achieves high accuracy for the next 24-48 hours, with confidence decreasing for longer-range forecasts.</div></div>' +
+                '<div class="faq-item"><div class="faq-q">Why does my location not update automatically?</div><div class="faq-a">Location updates rely on browser permissions. Make sure location access is allowed for this site in your browser settings.</div></div>' +
+                '<div class="faq-item"><div class="faq-q">Can I track multiple cities?</div><div class="faq-a">Yes, use "Add New City" from the sidebar or the location dropdown to track additional locations.</div></div>' +
+                '<div class="faq-item"><div class="faq-q">Is there an offline mode?</div><div class="faq-a">Offline maps are coming soon and will let you view cached weather data without a connection.</div></div>' +
+                '<div class="settings-group" style="margin-top:18px;">' +
+                    '<div class="settings-label">Still need help?</div>' +
+                    '<div class="contact-btn-row">' +
+                        '<button class="modal-btn primary" id="contactSupportBtn">Contact Support</button>' +
+                        '<button class="modal-btn cancel" id="emailSupportBtn">Email Support</button>' +
+                    '</div>' +
+                '</div>';
+        }
+
+        function wireHelpInteractions() {
+            const contactBtn = document.getElementById('contactSupportBtn');
+            const emailBtn = document.getElementById('emailSupportBtn');
+            if (contactBtn) {
+                contactBtn.addEventListener('click', function () {
+                    showToast('Support chat will open shortly', 'message-circle');
+                });
+            }
+            if (emailBtn) {
+                emailBtn.addEventListener('click', function () {
+                    showToast('Opening email client...', 'mail');
+                    window.location.href = 'mailto:support@canpredict.app';
+                });
+            }
+        }
+
+        function buildPrivacyHtml() {
+            return '' +
+                '<p style="margin-bottom:12px;">CanPredict respects your privacy. This policy explains, in plain terms, how the app handles information while you use it.</p>' +
+                '<p style="margin-bottom:12px;"><strong style="color:#fff;">Location Data:</strong> Location access is used only to show local weather and is never sold to third parties. You can revoke permission anytime through your browser settings.</p>' +
+                '<p style="margin-bottom:12px;"><strong style="color:#fff;">Search History:</strong> Recent searches are stored on this device only, so the app can restore your last view next time you open it.</p>' +
+                '<p style="margin-bottom:12px;"><strong style="color:#fff;">Account Information:</strong> Basic profile details are used solely to personalize your experience within the app.</p>' +
+                '<p style="margin-bottom:12px;"><strong style="color:#fff;">Third-Party Services:</strong> Weather data may be sourced from external providers, which have their own independent privacy practices.</p>' +
+                '<p style="margin-bottom:12px;"><strong style="color:#fff;">Data Security:</strong> Reasonable technical measures are used to protect your information from unauthorized access.</p>' +
+                '<p>By continuing to use CanPredict, you agree to the practices described here. This policy may be updated periodically to reflect new features.</p>';
+        }
+
+        // -----------------------------------------------------------
+        // THEME SYSTEM
+        // -----------------------------------------------------------
+        function setTheme(theme) {
+            WeatherApp.store.update({ theme: theme });
+            var effective = theme;
+            if (theme === 'auto') {
+                var hour = new Date().getHours();
+                effective = (hour >= 20 || hour < 6) ? 'midnight' : 'dark';
+            }
+            if (effective === 'dark') {
+                document.body.removeAttribute('data-theme');
+            } else {
+                document.body.setAttribute('data-theme', effective);
+            }
+        }
+
+        // -----------------------------------------------------------
+        // WEATHER DETAIL POPUPS — always read the last-rendered metrics,
+        // so they can never drift out of sync with what's on screen.
+        // -----------------------------------------------------------
+        function buildHumidityPopup() {
+            var m = currentMetrics || {};
+            var pct = m.humidity != null ? m.humidity : 67;
+            var dewPoint = Math.round(20 + (pct / 100) * 6);
+            var comfort = pct > 70 ? 'Sticky' : (pct > 40 ? 'Comfortable' : 'Dry');
+            return '' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="droplets"></i>Humidity</span><span class="dm-val">' + pct + '%</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="thermometer"></i>Dew Point</span><span class="dm-val">' + dewPoint + '\u00b0</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="sofa"></i>Indoor Comfort</span><span class="dm-val">' + comfort + '</span></div>' +
+                '<div class="detail-explainer">Humidity measures how much moisture is in the air. Higher dew points make the air feel muggier, even if the temperature itself does not change.</div>';
+        }
+
+        function buildWindPopup() {
+            var m = currentMetrics || {};
+            var state = WeatherApp.store.load();
+            var val = WeatherApp.convertWind(m.wind || 12, state.windUnit);
+            var dir = m.windDir || 'NE';
+            var gust = Math.round(val * 1.6);
+            var unitLbl = state.windUnit === 'mph' ? 'mph' : 'km/h';
+            return '' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="compass"></i>Wind Direction</span><span class="dm-val">' + dir + '</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="wind"></i>Gust Speed</span><span class="dm-val">' + gust + ' ' + unitLbl + '</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="trending-up"></i>Pressure</span><span class="dm-val">' + (m.pressure || 1012) + ' hPa</span></div>' +
+                '<div class="detail-explainer">Gusts are short bursts of faster wind. A rising pressure trend usually signals clearing, more stable weather ahead.</div>';
+        }
+
+        function buildAqiPopup() {
+            var m = currentMetrics || {};
+            var aqi = m.aqi != null ? m.aqi : 58;
+            var advice = aqi <= 50 ? 'Air quality is good — enjoy outdoor activities.' :
+                aqi <= 100 ? 'Acceptable air quality. Unusually sensitive people should consider limiting prolonged outdoor exertion.' :
+                'Air quality is unhealthy for sensitive groups. Consider reducing prolonged outdoor exertion.';
+            return '' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="leaf"></i>AQI</span><span class="dm-val">' + aqi + '</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="circle-dot"></i>PM2.5</span><span class="dm-val">' + Math.round(aqi * 0.42) + ' \u00b5g/m\u00b3</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="circle-dot"></i>PM10</span><span class="dm-val">' + Math.round(aqi * 0.7) + ' \u00b5g/m\u00b3</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="cloud"></i>Ozone (O\u2083)</span><span class="dm-val">' + Math.round(aqi * 0.55) + ' ppb</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="flame"></i>CO</span><span class="dm-val">' + (0.4 + aqi / 100).toFixed(1) + ' ppm</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="atom"></i>NO\u2082</span><span class="dm-val">' + Math.round(aqi * 0.3) + ' ppb</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="atom"></i>SO\u2082</span><span class="dm-val">' + Math.round(aqi * 0.15) + ' ppb</span></div>' +
+                '<div class="detail-explainer">' + advice + '</div>';
+        }
+
+        function buildUvPopup() {
+            var m = currentMetrics || {};
+            var uv = m.uv != null ? m.uv : 8;
+            var scale = uv <= 2 ? 'Low' : uv <= 5 ? 'Moderate' : uv <= 7 ? 'High' : uv <= 10 ? 'Very High' : 'Extreme';
+            var safeMinutes = Math.max(10, Math.round(60 / uv * 3));
+            return '' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="sun"></i>UV Scale</span><span class="dm-val">' + uv + ' &middot; ' + scale + '</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="timer"></i>Safe Exposure</span><span class="dm-val">~' + safeMinutes + ' min</span></div>' +
+                '<div class="detail-metric-row"><span class="dm-label"><i data-lucide="shield"></i>Protection</span><span class="dm-val">SPF 30+</span></div>' +
+                '<div class="detail-explainer">Wear sunscreen, sunglasses, and a hat during peak hours. Seek shade between 11 AM and 3 PM when the UV index is high or above.</div>';
+        }
+
+        (function () {
+            var statItems = document.querySelectorAll('.stat-item');
+            var popupBuilders = [buildHumidityPopup, buildWindPopup, buildAqiPopup, buildUvPopup];
+            var popupTitles = ['Humidity Details', 'Wind Details', 'Air Quality Details', 'UV Index Details'];
+            statItems.forEach(function (item, idx) {
+                if (!popupBuilders[idx]) return;
+                item.addEventListener('click', function () {
+                    if (window.openModal) window.openModal(popupTitles[idx], popupBuilders[idx]());
+                });
+            });
+        })();
+
+        // -----------------------------------------------------------
+        // HERO CONDITION ANIMATION
+        // -----------------------------------------------------------
+        var heroRight = document.getElementById('heroRight');
+
+        function svgForCondition(cond) {
+            cond = (cond || '').toLowerCase();
+            if (cond.indexOf('thunder') !== -1) {
+                return { cls: 'anim-thunder', svg: '<svg viewBox="0 0 100 100"><defs><linearGradient id="boltGradHero" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ffea00"/><stop offset="100%" stop-color="#ffaa00"/></linearGradient></defs><path d="M20 55 h55 a18 18 0 0 0 0 -36 a15 15 0 0 0 -25 -10 a20 20 0 0 0 -30 46 z" fill="url(#cloudGrad)"/><path class="bolt-shape" d="M45 50 l-15 25 h15 l-5 20 l25 -30 h-15 z" fill="url(#boltGradHero)"/></svg>' };
+            }
+            if (cond.indexOf('drizzle') !== -1) {
+                return { cls: 'anim-rain', svg: '<svg viewBox="0 0 100 100"><path d="M20 60 h55 a18 18 0 0 0 0 -36 a15 15 0 0 0 -25 -10 a20 20 0 0 0 -30 46 z" fill="url(#cloudGrad)"/><line class="rain-drop" x1="34" y1="70" x2="32" y2="78" stroke="#7fd8ff" stroke-width="3" stroke-linecap="round" style="animation-delay:0s"/><line class="rain-drop" x1="50" y1="70" x2="48" y2="78" stroke="#7fd8ff" stroke-width="3" stroke-linecap="round" style="animation-delay:0.3s"/></svg>' };
+            }
+            if (cond.indexOf('rain') !== -1) {
+                return { cls: 'anim-rain', svg: '<svg viewBox="0 0 100 100"><path d="M20 60 h55 a18 18 0 0 0 0 -36 a15 15 0 0 0 -25 -10 a20 20 0 0 0 -30 46 z" fill="url(#cloudGrad)"/><line class="rain-drop" x1="32" y1="68" x2="30" y2="78" stroke="#00d2ff" stroke-width="3" stroke-linecap="round" style="animation-delay:0s"/><line class="rain-drop" x1="48" y1="68" x2="46" y2="78" stroke="#00d2ff" stroke-width="3" stroke-linecap="round" style="animation-delay:0.25s"/><line class="rain-drop" x1="64" y1="68" x2="62" y2="78" stroke="#00d2ff" stroke-width="3" stroke-linecap="round" style="animation-delay:0.5s"/></svg>' };
+            }
+            if (cond.indexOf('snow') !== -1) {
+                return { cls: 'anim-snow', svg: '<svg viewBox="0 0 100 100"><path d="M20 60 h55 a18 18 0 0 0 0 -36 a15 15 0 0 0 -25 -10 a20 20 0 0 0 -30 46 z" fill="url(#cloudGrad)"/><circle class="snow-dot" cx="32" cy="70" r="2.5" fill="#fff" style="animation-delay:0s"/><circle class="snow-dot" cx="48" cy="70" r="2.5" fill="#fff" style="animation-delay:0.4s"/><circle class="snow-dot" cx="64" cy="70" r="2.5" fill="#fff" style="animation-delay:0.8s"/></svg>' };
+            }
+            if (cond.indexOf('fog') !== -1 || cond.indexOf('mist') !== -1) {
+                return { cls: 'anim-cloudy', svg: '<svg viewBox="0 0 100 100"><use href="#icon-' + (cond.indexOf('fog') !== -1 ? 'fog' : 'mist') + '"></use></svg>' };
+            }
+            if (cond.indexOf('wind') !== -1) {
+                return { cls: 'anim-windy', svg: '<svg viewBox="0 0 100 100"><path d="M20 60 h55 a18 18 0 0 0 0 -36 a15 15 0 0 0 -25 -10 a20 20 0 0 0 -30 46 z" fill="url(#cloudGrad)"/><line class="wind-line" x1="10" y1="55" x2="30" y2="55" stroke="#8c92c2" stroke-width="3" stroke-linecap="round" style="animation-delay:0s"/><line class="wind-line" x1="10" y1="70" x2="26" y2="70" stroke="#8c92c2" stroke-width="3" stroke-linecap="round" style="animation-delay:0.3s"/><line class="wind-line" x1="10" y1="40" x2="24" y2="40" stroke="#8c92c2" stroke-width="3" stroke-linecap="round" style="animation-delay:0.6s"/></svg>' };
+            }
+            if (cond.indexOf('cloud') !== -1) {
+                return { cls: 'anim-cloudy', svg: '<svg viewBox="0 0 100 100"><path class="cloud-shape-1" d="M15 68 h40 a16 16 0 0 0 0 -32 a13 13 0 0 0 -22 -9 a18 18 0 0 0 -18 41 z" fill="url(#cloudGrad)" opacity="0.85"/><path class="cloud-shape-2" d="M42 78 h35 a14 14 0 0 0 0 -28 a11 11 0 0 0 -19 -7 a16 16 0 0 0 -16 35 z" fill="url(#cloudGrad)"/></svg>' };
+            }
+            return { cls: 'anim-sunny', svg: '<svg viewBox="0 0 100 100"><g class="sun-ray"><line x1="65" y1="4" x2="65" y2="12" stroke="#ffb703" stroke-width="4" stroke-linecap="round"/><line x1="65" y1="4" x2="65" y2="12" stroke="#ffb703" stroke-width="4" stroke-linecap="round" transform="rotate(45 65 35)"/><line x1="65" y1="4" x2="65" y2="12" stroke="#ffb703" stroke-width="4" stroke-linecap="round" transform="rotate(90 65 35)"/><line x1="65" y1="4" x2="65" y2="12" stroke="#ffb703" stroke-width="4" stroke-linecap="round" transform="rotate(135 65 35)"/><line x1="65" y1="4" x2="65" y2="12" stroke="#ffb703" stroke-width="4" stroke-linecap="round" transform="rotate(180 65 35)"/><line x1="65" y1="4" x2="65" y2="12" stroke="#ffb703" stroke-width="4" stroke-linecap="round" transform="rotate(225 65 35)"/><line x1="65" y1="4" x2="65" y2="12" stroke="#ffb703" stroke-width="4" stroke-linecap="round" transform="rotate(270 65 35)"/><line x1="65" y1="4" x2="65" y2="12" stroke="#ffb703" stroke-width="4" stroke-linecap="round" transform="rotate(315 65 35)"/></g><circle class="sun-core" cx="65" cy="35" r="22" fill="url(#sunGrad)"/><path d="M20 70 h50 a20 20 0 0 0 0 -40 a15 15 0 0 0 -25 -10 a22 22 0 0 0 -25 5 a20 20 0 0 0 0 45 z" fill="url(#cloudGrad)" opacity="0.95"/></svg>' };
+        }
+
+        function setHeroIcon(cond) {
+            if (!heroRight) return;
+            var conf = svgForCondition(cond);
+            heroRight.className = 'hero-right ' + conf.cls;
+            heroRight.innerHTML = conf.svg;
+        }
+
+        // -----------------------------------------------------------
+        // DYNAMIC BACKGROUND
+        // -----------------------------------------------------------
+        function updateDynamicBackground(cond) {
+            cond = (cond || '').toLowerCase();
+            var hour = new Date().getHours();
+            var gradient;
+            if (cond.indexOf('thunder') !== -1) {
+                gradient = 'radial-gradient(circle at 50% 20%, #2b2144 0%, #0a0714 70%)';
+            } else if (cond.indexOf('rain') !== -1 || cond.indexOf('drizzle') !== -1) {
+                gradient = 'radial-gradient(circle at 50% 25%, #14263f 0%, #050a14 70%)';
+            } else if (cond.indexOf('snow') !== -1) {
+                gradient = 'radial-gradient(circle at 50% 25%, #1e2a44 0%, #070b16 70%)';
+            } else if (cond.indexOf('cloud') !== -1 || cond.indexOf('mist') !== -1 || cond.indexOf('fog') !== -1) {
+                gradient = 'radial-gradient(circle at 50% 30%, #1c2138 0%, #0a0b16 70%)';
+            } else if (hour >= 5 && hour < 11) {
+                gradient = 'radial-gradient(circle at 50% 25%, #274270 0%, #0a0f1f 70%)';
+            } else if (hour >= 11 && hour < 17) {
+                gradient = 'radial-gradient(circle at 50% 30%, #1c3a8a 0%, #071029 70%)';
+            } else if (hour >= 17 && hour < 20) {
+                gradient = 'radial-gradient(circle at 50% 30%, #5a2a5e 0%, #10071c 70%)';
+            } else {
+                gradient = 'radial-gradient(circle at 50% 30%, #151a4a 0%, #050716 70%)';
+            }
+            document.documentElement.style.setProperty('--bg-gradient', gradient);
+        }
+
+        // -----------------------------------------------------------
+        // PULL TO REFRESH
+        // -----------------------------------------------------------
+        (function () {
+            var scrollEl = document.getElementById('scrollableContent');
+            var indicator = document.getElementById('pullRefreshIndicator');
+            var text = document.getElementById('pullRefreshText');
+            var spinner = document.getElementById('prfSpinner');
+            if (!scrollEl) return;
+            var startY = 0, pulling = false, dragDistance = 0;
+            var THRESHOLD = 70;
+
+            function onStart(y) {
+                if (scrollEl.scrollTop <= 0) { startY = y; pulling = true; }
+            }
+            function onMove(y) {
+                if (!pulling) return;
+                dragDistance = Math.max(0, y - startY);
+                if (dragDistance > 0) {
+                    var height = Math.min(80, dragDistance * 0.6);
+                    indicator.style.height = height + 'px';
+                    text.textContent = dragDistance > THRESHOLD ? 'Release to Refresh' : 'Pull to Refresh';
+                }
+            }
+            function onEnd() {
+                if (!pulling) return;
+                pulling = false;
+                if (dragDistance > THRESHOLD) {
+                    spinner.classList.add('spinning');
+                    text.textContent = 'Refreshing…';
+                    refreshWeather(function () {
+                        indicator.style.height = '0px';
+                        spinner.classList.remove('spinning');
+                    });
+                } else {
+                    indicator.style.height = '0px';
+                }
+                dragDistance = 0;
+            }
+
+            scrollEl.addEventListener('touchstart', function (e) { onStart(e.touches[0].clientY); }, { passive: true });
+            scrollEl.addEventListener('touchmove', function (e) { onMove(e.touches[0].clientY); }, { passive: true });
+            scrollEl.addEventListener('touchend', onEnd);
+            scrollEl.addEventListener('mousedown', function (e) { onStart(e.clientY); });
+            document.addEventListener('mousemove', function (e) { if (pulling) onMove(e.clientY); });
+            document.addEventListener('mouseup', onEnd);
+        })();
+
+        // -----------------------------------------------------------
+        // SKELETON LOADERS
+        // -----------------------------------------------------------
+        var skeletonOverlay = document.getElementById('skeletonOverlay');
+        function showSkeleton() { if (skeletonOverlay) skeletonOverlay.classList.add('active'); }
+        function hideSkeleton() { if (skeletonOverlay) skeletonOverlay.classList.remove('active'); }
+
+        // -----------------------------------------------------------
+        // WEATHER ALERT BANNER — derived from the live metrics for the
+        // currently selected day, re-evaluated on every render.
+        // -----------------------------------------------------------
+        function updateAlertBanner() {
+            var banner = document.getElementById('weatherAlertBanner');
+            var bannerText = document.getElementById('weatherAlertText');
+            if (!banner || !currentMetrics) return;
+
+            var todayKey = 'wa_alert_dismissed_' + new Date().toDateString();
+            if (localStorage.getItem(todayKey)) { banner.style.display = 'none'; return; }
+
+            var message = null;
+            if (currentMetrics.uvLabel === 'Very High') {
+                message = 'High UV Today — Limit Midday Sun Exposure';
+            } else if (WeatherApp.convertWind(currentMetrics.wind, 'kmh') > 30) {
+                message = 'Strong Winds Expected';
+            } else if (currentMetrics.aqi > 100) {
+                message = 'Air Quality Alert Today';
+            } else if (currentDayObj && (currentDayObj.icon === 'icon-thunder')) {
+                message = 'Thunderstorm Expected — Stay Safe';
+            }
+
+            if (!message) { banner.style.display = 'none'; return; }
+            bannerText.textContent = message;
+            banner.style.display = 'flex';
+
+            var closeBtn = document.getElementById('weatherAlertClose');
+            if (closeBtn && !closeBtn.dataset.wired) {
+                closeBtn.dataset.wired = '1';
+                closeBtn.addEventListener('click', function () {
+                    banner.style.display = 'none';
+                    try { localStorage.setItem(todayKey, '1'); } catch (e) { /* ignore */ }
+                });
+            }
+        }
+
+        // -----------------------------------------------------------
+        // SUNRISE / SUNSET PROGRESS
+        // -----------------------------------------------------------
+        function updateSunProgress() {
+            if (!currentMetrics) return;
+            var sunrise = currentMetrics.sunriseMinutes;
+            var sunset = currentMetrics.sunsetMinutes;
+            var now = new Date();
+            var nowMin = now.getHours() * 60 + now.getMinutes();
+            var totalArc = 316;
+
+            var pct = (nowMin - sunrise) / (sunset - sunrise);
+            pct = Math.max(0, Math.min(1, pct));
+
+            var fillPath = document.getElementById('sunProgressFill');
+            var dot = document.getElementById('sunPositionDot');
+            if (fillPath) fillPath.style.strokeDashoffset = String(totalArc - totalArc * pct);
+            if (dot) {
+                var arcCx = 150, arcCy = 174.868, arcR = 165;
+                var angleStart = -144.903 * Math.PI / 180;
+                var angleEnd = -35.097 * Math.PI / 180;
+                var angle = angleStart + (angleEnd - angleStart) * pct;
+                dot.setAttribute('cx', arcCx + arcR * Math.cos(angle));
+                dot.setAttribute('cy', arcCy + arcR * Math.sin(angle));
+            }
+            var sunriseVal = document.getElementById('sunriseVal');
+            var sunsetVal = document.getElementById('sunsetVal');
+            var goldenHourTag = document.getElementById('goldenHourTag');
+            if (sunriseVal) sunriseVal.textContent = currentMetrics.sunrise;
+            if (sunsetVal) sunsetVal.textContent = currentMetrics.sunset;
+            if (goldenHourTag) {
+                var goldenStart = WeatherApp.CITY_PROFILES ? currentMetrics.sunset : '';
+            }
+        }
+
+        // -----------------------------------------------------------
+        // FAVORITES
+        // -----------------------------------------------------------
+        var favoriteBtn = document.getElementById('favoriteStarBtn');
+        function refreshFavoriteButton() {
+            if (!favoriteBtn) return;
+            var state = WeatherApp.store.load();
+            var isFav = state.favorites.indexOf(state.cityDisplay) !== -1;
+            favoriteBtn.classList.toggle('is-favorite', isFav);
+        }
+        if (favoriteBtn) {
+            favoriteBtn.addEventListener('click', function () {
+                var state = WeatherApp.store.load();
+                var added = WeatherApp.store.toggleFavorite(state.cityDisplay);
+                showToast(state.cityDisplay + (added ? ' added to favorites' : ' removed from favorites'), added ? 'star' : 'star-off');
+                refreshFavoriteButton();
+            });
+        }
+
+        // -----------------------------------------------------------
+        // KEYBOARD SHORTCUTS ( "/" focuses search; ESC handled globally
+        // by WeatherApp.overlay.bindEsc() )
+        // -----------------------------------------------------------
+        document.addEventListener('keydown', function (e) {
+            var tag = (document.activeElement && document.activeElement.tagName) || '';
+            var searchInput = document.getElementById('searchInput');
+            if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+                e.preventDefault();
+                if (searchInput) searchInput.focus();
+            }
+        });
+
+        // =================================================================
+        // MASTER RENDER — the single function that keeps every visible
+        // part of the Home page in sync with the shared weather store.
+        // Called on load, and after every action that changes the store
+        // (search, geolocation, city switch, hourly/day click, unit
+        // toggle, refresh).
+        // =================================================================
+        function renderHourly(cityKey, dayObj, selectedHourIndex) {
+            var hourly = WeatherApp.generateHourly(cityKey, dayObj);
+            var container = document.getElementById('hourlyRowScroller');
+            if (!container) return hourly;
+            container.innerHTML = hourly.map(function (h, i) {
+                return '<div class="hourly-item-card' + (i === selectedHourIndex ? ' selected-active' : '') + '" data-hour-index="' + i + '">' +
+                    '<span class="h-time">' + h.time + '</span>' +
+                    '<div class="h-img">' + WeatherApp.icons.markup(h.icon) + '</div>' +
+                    '<span class="h-temp">' + h.temp + '\u00b0</span>' +
+                '</div>';
+            }).join('');
+            lucide.createIcons();
+            return hourly;
+        }
+
+        function renderSevenDay(cityKey, days, selectedDayIndex) {
+            var container = document.getElementById('sevenDayContainer');
+            if (!container) return;
+            var list = days.slice(0, 7);
+            container.innerHTML = list.map(function (d) {
+                return '<div class="day-strip' + (d.index === selectedDayIndex ? ' selected-row' : '') + '" data-day-index="' + d.index + '">' +
+                    '<div class="calendar-meta"><span class="day-name">' + d.day + '</span><span class="date-sub">' + d.date + '</span></div>' +
+                    '<div class="weather-icon">' + WeatherApp.icons.markup(d.icon) + '</div>' +
+                    '<span class="cond-label">' + d.condition + '</span>' +
+                    '<div class="temp-spread"><span style="color:#fff">' + d.max + '\u00b0</span><span style="color:var(--text-secondary)">' + d.min + '\u00b0</span></div>' +
+                    '<span class="precip-val"><i data-lucide="droplet" style="width: 10px;"></i>' + d.rain + '%</span>' +
+                    '<i data-lucide="chevron-right" style="width:14px;" class="row-chevron"></i>' +
+                '</div>';
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function renderAll() {
+            var state = WeatherApp.store.load();
+            var cityData = WeatherApp.getCityData(state.cityKey);
+            var dayIndex = Math.max(0, Math.min(cityData.days.length - 1, state.selectedDayIndex));
+            var dayObj = cityData.days[dayIndex];
+            var metrics = WeatherApp.generateMetrics(cityData.key, dayObj);
+            var hourly = renderHourly(cityData.key, dayObj, state.selectedHourIndex);
+            renderSevenDay(cityData.key, cityData.days, dayIndex);
+
+            var hourIndex = Math.max(0, Math.min(hourly.length - 1, state.selectedHourIndex));
+            var hourObj = hourly[hourIndex];
+
+            currentDayObj = dayObj;
+            currentHourObj = hourObj;
+            currentMetrics = metrics;
+
+            var feelsDelta = metrics.feelsLike - metrics.temp;
+            var heroTemp = hourObj.temp;
+            var heroFeel = heroTemp + feelsDelta;
+            var heroCondLabel = dayIndex === 0 ? dayObj.condition : dayObj.condition;
+
+            var locationTextEl = document.getElementById('currentLocationText');
+            if (locationTextEl) locationTextEl.textContent = state.cityDisplay;
+
+            var heroTempEl = document.getElementById('heroTemp');
+            var heroCondEl = document.getElementById('heroCond');
+            var heroFeelEl = document.getElementById('heroFeel');
+            if (heroTempEl) heroTempEl.textContent = WeatherApp.formatTemp(heroTemp, state.unit);
+            if (heroCondEl) heroCondEl.textContent = heroCondLabel;
+            if (heroFeelEl) heroFeelEl.textContent = 'Feels like ' + WeatherApp.formatTemp(heroFeel, state.unit);
+            setHeroIcon(heroCondLabel);
+            updateDynamicBackground(heroCondLabel);
+
+            var hiLoSpans = document.querySelectorAll('.hi-lo-group span');
+            if (hiLoSpans[0]) hiLoSpans[0].innerHTML = '<i data-lucide="arrow-up" style="width:14px;"></i>' + WeatherApp.formatTemp(dayObj.max, state.unit);
+            if (hiLoSpans[1]) hiLoSpans[1].innerHTML = '<i data-lucide="arrow-down" style="width:14px;"></i>' + WeatherApp.formatTemp(dayObj.min, state.unit);
+
+            var unitTogglePill = document.getElementById('unitTogglePill');
+            if (unitTogglePill) unitTogglePill.innerHTML = state.unit === 'F' ? '&deg;F' : '&deg;C';
+
+            var statHumidity = document.getElementById('statHumidity');
+            var statHumidityLbl = document.getElementById('statHumidityLbl');
+            var statWind = document.getElementById('statWind');
+            var statWindLbl = document.getElementById('statWindLbl');
+            var statAqi = document.getElementById('statAqi');
+            var statAqiLbl = document.getElementById('statAqiLbl');
+            var statUv = document.getElementById('statUv');
+            var statUvLbl = document.getElementById('statUvLbl');
+            if (statHumidity) statHumidity.textContent = metrics.humidity + '%';
+            if (statHumidityLbl) statHumidityLbl.textContent = metrics.humidityLabel;
+            if (statWind) statWind.textContent = WeatherApp.convertWind(metrics.wind, state.windUnit);
+            if (statWindLbl) statWindLbl.textContent = metrics.windDir;
+            if (statAqi) statAqi.textContent = metrics.aqi;
+            if (statAqiLbl) { statAqiLbl.textContent = metrics.aqiLabel; statAqiLbl.style.color = metrics.aqiColor; }
+            if (statUv) statUv.textContent = metrics.uv;
+            if (statUvLbl) { statUvLbl.textContent = metrics.uvLabel; statUvLbl.style.color = metrics.uvColor; }
+
+            var aiDesc = document.querySelector('.ai-desc');
+            if (aiDesc) {
+                var prediction = WeatherApp.generatePrediction(cityData.key, cityData.days);
+                aiDesc.textContent = prediction.condition + ' expected tomorrow with a ' + prediction.rainProbability + '% chance of rain.';
+            }
+
+            updateSunProgress();
+            updateAlertBanner();
+            refreshFavoriteButton();
+            lucide.createIcons();
+        }
+
+        // Hourly card + 7-day row click delegation (persist selection via store)
+        (function () {
+            var hourlyContainer = document.getElementById('hourlyRowScroller');
+            var sevenDayContainer = document.getElementById('sevenDayContainer');
+
+            if (hourlyContainer) {
+                hourlyContainer.addEventListener('click', function (e) {
+                    var card = e.target.closest('.hourly-item-card');
+                    if (!card) return;
+                    var idx = parseInt(card.dataset.hourIndex, 10);
+                    WeatherApp.store.setSelectedHour(idx);
+                    renderAll();
+                });
+            }
+
+            if (sevenDayContainer) {
+                sevenDayContainer.addEventListener('click', function (e) {
+                    var row = e.target.closest('.day-strip');
+                    if (!row) return;
+                    var idx = parseInt(row.dataset.dayIndex, 10);
+                    WeatherApp.store.setSelectedDay(idx);
+                    renderAll();
+                });
+            }
+        })();
+
+        // -----------------------------------------------------------
+        // RESTORE PERSISTED STATE ON LOAD
+        // -----------------------------------------------------------
+        function restoreOnLoad() {
+            var state = WeatherApp.store.load();
+            setTheme(state.theme);
+            renderAll();
+            startTicking();
+        }
+        restoreOnLoad();
+
+    </script>
+</body>
+</html>
+
+<script src="navigation.js"></script>

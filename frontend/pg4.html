@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CanPredict Profile - Glassmorphic Edition</title>
+    <!-- Lucide Icons for clean UI components -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Shared weather data store / icon library / overlay manager -->
+    <script src="weather-data.js"></script>
+    <style>
+        :root {
+            --bg-gradient: radial-gradient(circle at 50% 30%, #151a4a 0%, #050716 70%);
+            --glass-card: rgba(25, 28, 62, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #ffffff;
+            --text-secondary: #8c92c2;
+            --accent-blue: #00d2ff;
+            --accent-purple: #8b5cf6;
+            --accent-gold: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+                        box-shadow 0.3s ease, 
+                        background 0.3s ease, 
+                        border-color 0.3s ease,
+                        filter 0.3s ease;
+        }
+
+        body {
+            background-color: #03040b;
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px 0;
+        }
+
+        /* Fixed App Window Frame matching index.html perfectly */
+        .app-window {
+            width: 393px;
+            height: 852px;
+            background: var(--bg-gradient);
+            border-radius: 44px;
+            position: relative;
+            border: 6px solid #181b36;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            perspective: 1000px; /* Enable 3D rendering for children */
+        }
+
+        /* Scrollable Content Container */
+        .scrollable-content {
+            flex: 1;
+            overflow-y: scroll;
+            padding: 24px 16px 110px 16px;
+        }
+
+        .scrollable-content::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Top Header Profile Navigation UI */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .top-bar h2 {
+            font-size: 18px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .btn-circle {
+            width: 44px;
+            height: 44px;
+            background: var(--glass-card);
+            border: 1px solid var(--glass-border);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-primary);
+            cursor: pointer;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .btn-circle:hover {
+            transform: scale(1.1) rotate(15deg);
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 8px 20px rgba(255, 255, 255, 0.1);
+        }
+
+        /* Profile Card with 3D Effect & Lighthouse Background */
+        .profile-hero-card {
+            background: linear-gradient(135deg, rgba(15, 23, 67, 0.8) 0%, rgba(8, 7, 28, 0.9) 100%), 
+                        url('https://images.unsplash.com/photo-1509114397022-ed747cca3f65?q=80&w=600&auto=format&fit=crop');
+            background-size: cover;
+            background-position: right center;
+            border: 1px solid rgba(59, 130, 246, 0.25);
+            border-radius: 24px;
+            padding: 20px;
+            margin-bottom: 16px;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+            transform-style: preserve-3d;
+        }
+
+        .profile-hero-card:hover {
+            transform: translateY(-6px) rotateX(4deg) rotateY(-2px);
+            border-color: rgba(0, 212, 255, 0.5);
+            box-shadow: 0 20px 40px rgba(59, 130, 246, 0.3);
+        }
+
+        .profile-meta-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transform: translateZ(20px); /* 3D layer pop */
+        }
+
+        .avatar-glow-ring {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            padding: 2px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.4);
+        }
+
+        .avatar-inner {
+            width: 100%;
+            height: 100%;
+            background: #0d1131;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--accent-blue);
+        }
+
+        .profile-hero-card:hover .avatar-glow-ring {
+            transform: scale(1.05) translateZ(10px);
+            box-shadow: 0 0 25px rgba(0, 212, 255, 0.7);
+        }
+
+        .profile-details h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .profile-email {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .profile-geo {
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* 3D Action Glass Button style */
+        .glass-btn-3d {
+            margin-top: 16px;
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            color: #c084fc;
+            padding: 8px 16px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.1);
+            transform: translateZ(10px);
+        }
+
+        .glass-btn-3d:hover {
+            background: rgba(139, 92, 246, 0.3);
+            transform: translateZ(25px) scale(1.05);
+            box-shadow: 0 8px 20px rgba(139, 92, 246, 0.4);
+            border-color: #c084fc;
+        }
+
+        /* Premium Promo Box */
+        .premium-promo-card {
+            background: linear-gradient(90deg, rgba(25, 28, 62, 0.7) 0%, rgba(45, 20, 80, 0.4) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            border-radius: 20px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            transform-style: preserve-3d;
+        }
+
+        .premium-promo-card:hover {
+            transform: translateY(-5px) scale(1.02) rotateY(1deg);
+            border-color: var(--accent-gold);
+            box-shadow: 0 12px 30px rgba(245, 158, 11, 0.25);
+            background: linear-gradient(90deg, rgba(35, 39, 85, 0.8) 0%, rgba(61, 28, 108, 0.5) 100%);
+        }
+
+        .premium-promo-card:hover .crown-box {
+            transform: scale(1.1) translateZ(10px) rotate(-10deg);
+            background: rgba(245, 158, 11, 0.2);
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+        }
+
+        .premium-left-layout {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .crown-box {
+            width: 40px;
+            height: 40px;
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--accent-gold);
+        }
+
+        .premium-text-block h4 {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .premium-text-block h4 span {
+            color: var(--accent-gold);
+        }
+
+        .premium-text-block p {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            line-height: 1.3;
+            max-width: 170px;
+        }
+
+        .action-upgrade-btn {
+            background: linear-gradient(90deg, #b45309 0%, #d97706 100%);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);
+        }
+
+        .action-upgrade-btn:hover {
+            transform: scale(1.08) translateZ(15px);
+            box-shadow: 0 6px 20px rgba(217, 119, 6, 0.6);
+        }
+
+        /* Generic Glass Section Block Wrapper */
+        .glass-panel-section {
+            background: var(--glass-card);
+            border: 1px solid var(--glass-border);
+            border-radius: 22px;
+            padding: 4px 16px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(12px);
+        }
+
+        /* Interactive Card Panel Hover Expansion */
+        .glass-panel-section:hover {
+            background: rgba(32, 36, 78, 0.55);
+            border-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .section-heading-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0 6px 0;
+        }
+
+        .section-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .section-action-link {
+            font-size: 12px;
+            color: var(--accent-blue);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .section-action-link:hover {
+            transform: translateX(4px);
+            color: #fff;
+        }
+
+        /* Lists and List Item Rows */
+        .setting-row-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+        }
+
+        /* Subtle row highlight context items on lists */
+        .setting-row-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateX(2px);
+            padding-left: 10px;
+        }
+
+        .setting-row-item:last-child {
+            border-bottom: none;
+        }
+
+        .row-left-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .row-circle-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .setting-row-item:hover .row-circle-icon {
+            transform: scale(1.1);
+            filter: brightness(1.2);
+        }
+
+        /* Colors for Specific Image Items */
+        .loc-chn { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+        .loc-blr { background: rgba(6, 182, 212, 0.15); color: #22d3ee; }
+        .loc-mum { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
+        .title-meta h5 {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .sub-badge {
+            font-size: 11px;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 1px;
+        }
+
+        .sub-badge::before {
+            content: '';
+            width: 5px;
+            height: 5px;
+            background-color: var(--accent-blue);
+            border-radius: 50%;
+        }
+
+        .row-right-weather {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .right-temp-txt {
+            font-size: 15px;
+            font-weight: 500;
+        }
+
+        .weather-icon-inline {
+            display: flex;
+            align-items: center;
+        }
+
+        /* Dashed Add Location Interaction Element */
+        .dashed-action-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px;
+            background: rgba(139, 92, 246, 0.06);
+            border: 1px dashed rgba(139, 92, 246, 0.3);
+            border-radius: 14px;
+            color: #c084fc;
+            margin: 4px 0 16px 0;
+            cursor: pointer;
+            font-size: 13px;
+            justify-content: center;
+        }
+
+        .dashed-action-bar:hover {
+            background: rgba(139, 92, 246, 0.16);
+            border-color: #c084fc;
+            color: #fff;
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: 0 8px 20px rgba(139, 92, 246, 0.2);
+        }
+
+        /* Preference Segment Controls */
+        .row-item-title {
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+
+        .interactive-segmented-pill {
+            background: rgba(12, 14, 38, 0.6);
+            padding: 2px;
+            border-radius: 16px;
+            display: flex;
+            border: 1px solid var(--glass-border);
+        }
+
+        .segment-toggle-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 4px 12px;
+            font-size: 11px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .segment-toggle-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .segment-toggle-btn.active-blue {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+        }
+
+        .segment-toggle-btn.active-purple {
+            background: linear-gradient(135deg, #6d28d9, #4c1d95);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(109, 40, 217, 0.4);
+        }
+
+        .segment-toggle-btn.active-blue:hover, 
+        .segment-toggle-btn.active-purple:hover {
+            transform: scale(1.05);
+            filter: brightness(1.1);
+        }
+
+        /* Value Nav row descriptor styling */
+        .interactive-value-link {
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+
+        .setting-row-item:hover .interactive-value-link {
+            color: #fff;
+            transform: translateX(2px);
+        }
+
+        /* iOS Switch Toggle Checkbox */
+        .ios-switch-container {
+            position: relative;
+            display: inline-block;
+            width: 42px;
+            height: 22px;
+        }
+
+        .ios-switch-container input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .ios-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #2a2f54;
+            transition: .3s;
+            border-radius: 22px;
+        }
+
+        .ios-slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .ios-slider {
+            background: linear-gradient(135deg, #3b82f6, #60a5fa);
+        }
+
+        input:checked + .ios-slider:before {
+            transform: translateX(20px);
+        }
+
+        .ios-switch-container:hover .ios-slider {
+            filter: brightness(1.15);
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+        }
+
+        /* Bottom System Navigation Bar (copied verbatim from pg3.html) */
+        .dock-nav {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 86px;
+            background: rgba(8, 10, 25, 0.85);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-top: 1px solid var(--glass-border);
+            border-radius: 30px 30px 0 0;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 10px 16px 10px;
+            z-index: 100;
+        }
+
+        .nav-tab {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            color: var(--text-secondary);
+            font-size: 10px;
+            cursor: pointer;
+            width: 60px;
+            text-decoration: none;
+        }
+
+        .nav-tab:hover {
+            color: #fff;
+            transform: translateY(-4px) scale(1.05);
+        }
+
+        .nav-tab.active {
+            color: #4aa3ff; /* Matching Forecast active state color */
+        }
+
+        .nav-tab i { width: 22px; height: 22px; }
+
+        /* Central Hex/Circle Action Button */
+        .center-action {
+            position: relative;
+            top: -24px;
+        }
+
+        .hex-btn {
+            width: 62px;
+            height: 62px;
+            background: linear-gradient(135deg, #3d41f7 0%, #151673 100%);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            border: 4px solid #060716;
+            box-shadow: 0 10px 24px rgba(61, 65, 247, 0.4), inset 0 1px 1px rgba(255,255,255,0.4);
+            cursor: pointer;
+        }
+
+        .hex-btn:hover {
+            transform: scale(1.1) rotate(-5deg);
+            box-shadow: 0 15px 30px rgba(61, 65, 247, 0.6), 0 0 20px rgba(0, 212, 255, 0.4);
+            background: linear-gradient(135deg, #5054ff 0%, #1d1f94 100%);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-window">
+        <!-- Main Scroll Matrix Block -->
+        <div class="scrollable-content">
+            
+            <!-- Header Segment Top Navigation layout -->
+            <header class="top-bar">
+                <div style="width: 44px;"></div> <!-- Spacer element balancing center header title -->
+                <h2>Profile</h2>
+                <div class="btn-circle"><i data-lucide="settings" style="width: 20px;"></i></div>
+            </header>
+
+            <!-- 3D Profile Display Metadata card container -->
+            <section class="profile-hero-card">
+                <div class="profile-meta-row">
+                    <div class="avatar-glow-ring">
+                        <div class="avatar-inner">
+                            <i data-lucide="cloud-lightning" style="width: 32px; height: 32px;"></i>
+                        </div>
+                    </div>
+                    <div class="profile-details">
+                        <h3>Jabez R</h3>
+                        <div class="profile-email">jabezr@example.com</div>
+                        <div class="profile-geo">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 13px; height: 13px; color: var(--accent-blue); flex-shrink: 0;"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg> <span id="profileLocationText">Chennai, India</span>
+                        </div>
+                    </div>
+                </div>
+                <button class="glass-btn-3d">
+                    <i data-lucide="edit-3" style="width: 14px;"></i> Edit Profile
+                </button>
+            </section>
+
+            <!-- Premium Subscription Banner Panel -->
+            <section class="premium-promo-card">
+                <div class="premium-left-layout">
+                    <div class="crown-box">
+                        <i data-lucide="crown" style="width: 18px;"></i>
+                    </div>
+                    <div class="premium-text-block">
+                        <h4>CanPredict <span>Premium</span></h4>
+                        <p>Unlock advanced features & ad-free experience</p>
+                    </div>
+                </div>
+                <button class="action-upgrade-btn">
+                    Upgrade Now <i data-lucide="chevron-right" style="width: 12px;"></i>
+                </button>
+            </section>
+
+            <!-- My Locations Module Section Grid block -->
+            <div>
+                <div class="section-heading-row">
+                    <span class="section-label">My Locations</span>
+                    <a href="#" class="section-action-link" id="manageLocationsLink">Manage <i data-lucide="chevron-right" style="width: 12px;"></i></a>
+                </div>
+                
+                <div class="glass-panel-section" id="myLocationsList">
+                    <!-- Populated dynamically from the shared weather store (see renderLocations) -->
+                </div>
+
+                <!-- Add Location Dashboard Action Trigger -->
+                <div class="dashed-action-bar" id="addLocationBar">
+                    <i data-lucide="plus" style="width: 16px;"></i> Add New Location
+                </div>
+            </div>
+
+            <!-- Preferences Configurations Block -->
+            <div>
+                <div class="section-heading-row" style="padding-top: 4px;">
+                    <span class="section-label">Preferences</span>
+                </div>
+                
+                <div class="glass-panel-section">
+                    <!-- Temp Segment Unit Row selector -->
+                    <div class="setting-row-item">
+                        <div class="row-left-group">
+                            <i data-lucide="thermometer" style="width:16px; color: #a78bfa;"></i>
+                            <span class="row-item-title">Temperature Unit</span>
+                        </div>
+                        <div class="interactive-segmented-pill" id="tempUnitPill">
+                            <button class="segment-toggle-btn active-purple" data-unit="C">°C</button>
+                            <button class="segment-toggle-btn" data-unit="F">°F</button>
+                        </div>
+                    </div>
+
+                    <!-- Wind Unit Row selector -->
+                    <div class="setting-row-item">
+                        <div class="row-left-group">
+                            <i data-lucide="wind" style="width:16px; color: #22d3ee;"></i>
+                            <span class="row-item-title">Wind Speed Unit</span>
+                        </div>
+                        <div class="interactive-segmented-pill" id="windUnitPill">
+                            <button class="segment-toggle-btn active-blue" data-unit="kmh">km/h</button>
+                            <button class="segment-toggle-btn" data-unit="mph">mph</button>
+                        </div>
+                    </div>
+
+                    <!-- Theme Value Link -->
+                    <div class="setting-row-item">
+                        <div class="row-left-group">
+                            <i data-lucide="palette" style="width:16px; color: #fbcfe8;"></i>
+                            <span class="row-item-title">Theme</span>
+                        </div>
+                        <div class="interactive-value-link">
+                            Dark <i data-lucide="chevron-right" style="width: 14px;"></i>
+                        </div>
+                    </div>
+
+                    <!-- Notification Toggle Switch -->
+                    <div class="setting-row-item">
+                        <div class="row-left-group">
+                            <i data-lucide="bell" style="width:16px; color: #60a5fa;"></i>
+                            <span class="row-item-title">Notifications</span>
+                        </div>
+                        <label class="ios-switch-container">
+                            <input type="checkbox" checked>
+                            <span class="ios-slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Language Row Selector -->
+                    <div class="setting-row-item">
+                        <div class="row-left-group">
+                            <i data-lucide="languages" style="width:16px; color: #34d399;"></i>
+                            <span class="row-item-title">Language</span>
+                        </div>
+                        <div class="interactive-value-link">
+                            English <i data-lucide="chevron-right" style="width: 14px;"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Application Info System Links Block Panel -->
+            <div class="glass-panel-section" style="margin-top: 4px;">
+                <!-- Support Row -->
+                <div class="setting-row-item">
+                    <div class="row-left-group">
+                        <i data-lucide="help-circle" style="width:16px; color: #f472b6;"></i>
+                        <span class="row-item-title">Help & Support</span>
+                    </div>
+                    <i data-lucide="chevron-right" style="width: 14px; color: var(--text-secondary);"></i>
+                </div>
+
+                <!-- Feedback Row -->
+                <div class="setting-row-item">
+                    <div class="row-left-group">
+                        <i data-lucide="message-square" style="width:16px; color: #38bdf8;"></i>
+                        <span class="row-item-title">Feedback</span>
+                    </div>
+                    <i data-lucide="chevron-right" style="width: 14px; color: var(--text-secondary);"></i>
+                </div>
+
+                <!-- App Version Descriptor Row -->
+                <div class="setting-row-item">
+                    <div class="row-left-group">
+                        <i data-lucide="info" style="width:16px; color: #9ca3af;"></i>
+                        <span class="row-item-title">About CanPredict</span>
+                    </div>
+                    <div class="interactive-value-link">
+                        v1.0.0 <i data-lucide="chevron-right" style="width: 14px;"></i>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Sticky Dock Nav (copied verbatim from pg3.html; Profile tab is active) -->
+        <nav class="dock-nav">
+            <div class="nav-tab" data-page="index.html">
+                <i data-lucide="home"></i>
+                <span>Home</span>
+            </div>
+            <div class="nav-tab" data-page="pg2.html">
+                <i data-lucide="calendar"></i>
+                <span>Forecast</span>
+            </div>
+            
+            <div class="center-action">
+                <div class="hex-btn" data-page="prediction.html">
+                    <i data-lucide="cloud-lightning" style="width: 26px; height: 26px;"></i>
+                </div>
+            </div>
+            
+            <div class="nav-tab" data-page="pg3.html">
+                <i data-lucide="bar-chart-2"></i>
+                <span>Insights</span>
+            </div>
+            <div class="nav-tab active" data-page="pg4.html">
+                <i data-lucide="user"></i>
+                <span>Profile</span>
+            </div>
+        </nav>
+
+    </div>
+
+    <script>
+        WeatherApp.icons.ensureDefs();
+
+        var storeState = WeatherApp.store.load();
+
+        var LOC_PALETTE = ['loc-chn', 'loc-blr', 'loc-mum'];
+
+        function lucideIconForCondition(iconId) {
+            switch (iconId) {
+                case 'icon-sunny': return { name: 'sun', color: '#f59e0b' };
+                case 'icon-partly-cloudy': return { name: 'cloud-sun', color: '#93c5fd' };
+                case 'icon-cloudy': return { name: 'cloud', color: '#93c5fd' };
+                case 'icon-rain': return { name: 'cloud-rain', color: '#60a5fa' };
+                case 'icon-thunder': return { name: 'cloud-lightning', color: '#fbbf24' };
+                case 'icon-drizzle': return { name: 'cloud-drizzle', color: '#7dd3fc' };
+                case 'icon-snow': return { name: 'snowflake', color: '#e0f2fe' };
+                case 'icon-mist': return { name: 'cloud-fog', color: '#cbd5e1' };
+                case 'icon-fog': return { name: 'cloud-fog', color: '#94a3b8' };
+                case 'icon-windy': return { name: 'wind', color: '#22d3ee' };
+                default: return { name: 'cloud', color: '#93c5fd' };
+            }
+        }
+
+        function buildLocationRow(displayName, isCurrent, paletteClass) {
+            var key = WeatherApp.resolveCityKey(displayName) || storeState.cityKey;
+            var data = WeatherApp.getCityData(key);
+            var dayObj = data.days[0];
+            var metrics = WeatherApp.generateMetrics(data.key, dayObj);
+            var iconInfo = lucideIconForCondition(dayObj.icon);
+            var tempTxt = WeatherApp.formatTemp(metrics.temp, storeState.unit);
+
+            return '' +
+                '<div class="setting-row-item" data-city="' + displayName + '">' +
+                    '<div class="row-left-group">' +
+                        '<div class="row-circle-icon ' + paletteClass + '">' +
+                            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 15px; height: 15px;"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>' +
+                        '</div>' +
+                        '<div class="title-meta">' +
+                            '<h5>' + displayName + '</h5>' +
+                            (isCurrent ? '<span class="sub-badge">Current Location</span>' : '') +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="row-right-weather">' +
+                        '<span class="right-temp-txt" data-celsius="' + metrics.temp + '">' + tempTxt + '</span>' +
+                        '<div class="weather-icon-inline" style="color: ' + iconInfo.color + ';"><i data-lucide="' + iconInfo.name + '" style="width: 18px;"></i></div>' +
+                    '</div>' +
+                '</div>';
+        }
+
+        function renderLocations() {
+            storeState = WeatherApp.store.load();
+            var profileLocationText = document.getElementById('profileLocationText');
+            if (profileLocationText) profileLocationText.textContent = storeState.cityDisplay;
+
+            var recents = storeState.searchHistory.filter(function (c) { return c !== storeState.cityDisplay; });
+            var names = [storeState.cityDisplay].concat(recents).slice(0, 5);
+
+            var listEl = document.getElementById('myLocationsList');
+            if (listEl) {
+                listEl.innerHTML = names.map(function (name, i) {
+                    return buildLocationRow(name, i === 0, LOC_PALETTE[i % LOC_PALETTE.length]);
+                }).join('');
+            }
+            lucide.createIcons();
+        }
+
+        // --- Add New Location ---
+        var addLocationBar = document.getElementById('addLocationBar');
+        if (addLocationBar) {
+            addLocationBar.addEventListener('click', function () {
+                var val = window.prompt('Enter a city name to add:');
+                if (!val) return;
+                val = val.trim();
+                if (!val) return;
+                var key = WeatherApp.resolveCityKey(val);
+                if (key) {
+                    WeatherApp.store.setCity(key);
+                } else {
+                    var hash = 0;
+                    for (var i = 0; i < val.length; i++) hash += val.charCodeAt(i) * (i + 1);
+                    WeatherApp.store.setCustomLocation(val, hash % 90, (hash * 3) % 180);
+                }
+                renderLocations();
+            });
+        }
+
+        // --- Manage Locations ---
+        var manageLocationsLink = document.getElementById('manageLocationsLink');
+        if (manageLocationsLink) {
+            manageLocationsLink.addEventListener('click', function (e) {
+                e.preventDefault();
+                var confirmClear = window.confirm('Clear your recent search history? Your current city will be kept.');
+                if (confirmClear) {
+                    WeatherApp.store.update({ searchHistory: [] });
+                    renderLocations();
+                }
+            });
+        }
+
+        // --- Temperature Unit Segmented Toggle ---
+        const tempPill = document.getElementById('tempUnitPill');
+        const tempButtons = tempPill.querySelectorAll('.segment-toggle-btn');
+
+        function syncTempButtons() {
+            tempButtons.forEach(function (b) {
+                b.classList.toggle('active-purple', b.dataset.unit === storeState.unit);
+            });
+        }
+
+        tempButtons.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                WeatherApp.store.update({ unit: btn.dataset.unit });
+                storeState = WeatherApp.store.load();
+                syncTempButtons();
+                renderLocations();
+            });
+        });
+
+        // --- Wind Speed Unit Segmented Toggle ---
+        const windPill = document.getElementById('windUnitPill');
+        const windButtons = windPill.querySelectorAll('.segment-toggle-btn');
+
+        function syncWindButtons() {
+            windButtons.forEach(function (b) {
+                b.classList.toggle('active-blue', b.dataset.unit === storeState.windUnit);
+            });
+        }
+
+        windButtons.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                WeatherApp.store.update({ windUnit: btn.dataset.unit });
+                storeState = WeatherApp.store.load();
+                syncWindButtons();
+            });
+        });
+
+        // ==========================================================
+        // BOTTOM DOCK NAVIGATION
+        // ==========================================================
+        document.querySelectorAll('.dock-nav [data-page]').forEach(function (el) {
+            el.addEventListener('click', function () { window.location.href = el.dataset.page; });
+        });
+
+        // ==========================================================
+        // INITIAL RENDER
+        // ==========================================================
+        syncTempButtons();
+        syncWindButtons();
+        renderLocations();
+
+        // Init responsive Vector Lucide assets shell engine
+        lucide.createIcons();
+    </script>
+</body>
+</html>
+<script src="navigation.js"></script>

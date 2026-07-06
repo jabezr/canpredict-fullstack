@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>7-Day Forecast - Glassmorphism UI</title>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Shared weather data store / icon library / overlay manager -->
+    <script src="weather-data.js"></script>
+    <style>
+        :root {
+            --bg-gradient: radial-gradient(circle at 50% 0%, #151a4a 0%, #050614 80%);
+            --glass-base: rgba(18, 22, 56, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-main: #ffffff;
+            --text-sub: #8c92c2;
+            --accent-blue: #00d2ff;
+            --accent-orange: #ffaa00;
+            --temp-min: #4aa3ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        body {
+            background-color: #02030a;
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px 0;
+        }
+
+        /* Fixed App Window Frame */
+        .app-window {
+            width: 393px;
+            height: 852px;
+            background: var(--bg-gradient);
+            border-radius: 44px;
+            position: relative;
+            border: 6px solid #16172e;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            perspective: 1000px; /* For 3D effects */
+        }
+
+        /* Scrollable Content Container */
+        .scrollable-content {
+            flex: 1;
+            overflow-y: scroll;
+            padding: 24px 16px 110px 16px;
+        }
+
+        .scrollable-content::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Top Header UI */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .btn-circle {
+            width: 44px;
+            height: 44px;
+            background: var(--glass-base);
+            border: 1px solid var(--glass-border);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-main);
+            cursor: pointer;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transform-style: preserve-3d;
+        }
+
+        .btn-circle:hover {
+            transform: translateY(-3px) scale(1.05);
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(0, 212, 255, 0.4);
+            box-shadow: 0 8px 20px rgba(0, 212, 255, 0.2);
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        /* Segmented Toggle Control */
+        .toggle-wrapper {
+            background: rgba(10, 12, 35, 0.6);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            display: flex;
+            padding: 4px;
+            margin-bottom: 24px;
+            backdrop-filter: blur(8px);
+        }
+
+        .toggle-btn {
+            flex: 1;
+            padding: 10px 0;
+            text-align: center;
+            border-radius: 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-sub);
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+
+        .toggle-btn.active {
+            background: linear-gradient(180deg, rgba(20, 50, 150, 0.4) 0%, rgba(10, 20, 80, 0.6) 100%);
+            color: var(--text-main);
+            border: 1px solid rgba(0, 212, 255, 0.5);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.2);
+        }
+
+        .toggle-btn:not(.active):hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* 7-Day Forecast Master List Card */
+        .forecast-list-card {
+            background: var(--glass-base);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 16px;
+            margin-bottom: 24px;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        /* List Header */
+        .list-header {
+            display: grid;
+            grid-template-columns: 50px 110px 100px 1fr;
+            font-size: 11px;
+            color: var(--text-sub);
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            margin-bottom: 8px;
+        }
+        
+        .list-header span:last-child {
+            text-align: right;
+        }
+
+        /* Individual Day Row */
+        .day-row {
+            display: grid;
+            grid-template-columns: 50px 110px 100px 1fr;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            cursor: pointer;
+            border-radius: 12px;
+            border: 1px solid transparent;
+        }
+
+        .day-row:last-child {
+            border-bottom: none;
+        }
+
+        /* 3D Hover Effect for Rows */
+        .day-row:hover {
+            transform: translateX(4px) scale(1.02);
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            padding-left: 8px;
+        }
+
+        /* Selected row indicator (uses existing accent palette only) */
+        .day-row.selected-row {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(0, 212, 255, 0.35);
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.12);
+        }
+
+        .date-col { display: flex; flex-direction: column; }
+        .date-col .day-name { font-size: 14px; font-weight: 600; }
+        .date-col .date-sub { font-size: 11px; color: var(--text-sub); }
+
+        .weather-col { display: flex; align-items: center; gap: 8px; }
+        .weather-col svg { width: 28px; height: 28px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
+        .weather-col .cond-text { font-size: 12px; color: var(--text-sub); }
+
+        .temp-col { display: flex; flex-direction: column; justify-content: center; gap: 4px; padding-right: 10px;}
+        .temp-vals { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; }
+        .t-min { color: var(--temp-min); }
+        .t-max { color: var(--accent-orange); }
+        
+        /* Gradient Temperature Bar */
+        .temp-bar-bg {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .temp-bar-fill {
+            position: absolute;
+            height: 100%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, var(--temp-min) 0%, var(--accent-orange) 100%);
+        }
+
+        .precip-col {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+        
+        .precip-col .drop { color: var(--accent-blue); width: 12px; height: 12px; }
+        .precip-col .chev { width: 14px; height: 14px; color: var(--text-sub); margin-left: 4px; }
+
+        /* Forecast rows container (used for fade transition between 7/15 day views) */
+        .forecast-rows {
+            opacity: 1;
+            transform: translateY(0);
+            transition: opacity 0.22s ease, transform 0.22s ease;
+        }
+
+        .forecast-rows.fade-hidden {
+            opacity: 0;
+            transform: translateY(6px);
+        }
+
+        /* Detailed Selected Day Card (Bottom Card) */
+        .detail-card {
+            background: linear-gradient(180deg, rgba(30, 40, 90, 0.6) 0%, rgba(15, 18, 45, 0.8) 100%);
+            border: 1px solid var(--glass-border);
+            border-top: 2px solid rgba(100, 150, 255, 0.4);
+            border-radius: 24px;
+            padding: 20px;
+            margin-bottom: 24px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), inset 0 10px 20px rgba(255, 255, 255, 0.05);
+        }
+
+        .detail-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5), inset 0 10px 20px rgba(255, 255, 255, 0.08);
+            border-top: 2px solid rgba(0, 212, 255, 0.6);
+        }
+
+        /* Detail card dynamic content wrapper (fades when selection changes) */
+        .detail-card-content {
+            opacity: 1;
+            transition: opacity 0.2s ease;
+        }
+
+        .detail-card-content.fade-hidden {
+            opacity: 0;
+        }
+
+        .detail-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .dt-left { display: flex; align-items: center; gap: 12px; }
+        .dt-left svg { width: 64px; height: 64px; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.3)); }
+        
+        .dt-info { display: flex; flex-direction: column; max-width: 150px; }
+        .dt-info h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+        .dt-info p { font-size: 10px; color: var(--text-sub); line-height: 1.3; }
+
+        .dt-right { display: flex; flex-direction: column; align-items: flex-end; }
+        .dt-right .big-temp { font-size: 42px; font-weight: 700; line-height: 1; }
+        .dt-right .feel { font-size: 11px; color: var(--text-sub); margin-top: 4px; }
+
+        /* Grid Dividers */
+        .divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.06);
+            margin: 16px 0;
+            width: 100%;
+        }
+
+        /* Detail Metrics Grids */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+
+        .metric-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .metric-item:hover { transform: scale(1.05); }
+
+        .mi-head { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-sub); }
+        .mi-head svg { width: 14px; height: 14px; }
+        .mi-head .blue-icon { color: var(--accent-blue); }
+        .mi-head .yellow-icon { color: #ffca28; }
+        
+        .mi-val { font-size: 13px; font-weight: 600; }
+        .mi-val span { font-size: 9px; font-weight: normal; }
+        .mi-sub { font-size: 9px; color: var(--text-sub); }
+
+        /* Hourly Inline Scroller */
+        .hourly-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            margin-top: 8px;
+        }
+        
+        .hourly-header h4 { font-size: 14px; font-weight: 600; }
+        .hourly-header a { font-size: 11px; color: var(--accent-blue); text-decoration: none; }
+
+        .hourly-scroll {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+
+        .hourly-scroll::-webkit-scrollbar { display: none; }
+
+        .hour-card {
+            min-width: 58px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 14px;
+            padding: 10px 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .hour-card:hover {
+            background: rgba(255, 255, 255, 0.08);
+            transform: translateY(-3px);
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .hour-card.active {
+            background: linear-gradient(180deg, rgba(20, 50, 150, 0.4) 0%, rgba(10, 20, 80, 0.5) 100%);
+            border: 1px solid rgba(0, 212, 255, 0.5);
+            box-shadow: 0 0 12px rgba(0, 212, 255, 0.2);
+        }
+
+        .hc-time { font-size: 11px; color: var(--text-sub); }
+        .hc-icon svg { width: 24px; height: 24px; }
+        .hc-temp { font-size: 14px; font-weight: 600; }
+        .hc-rain { font-size: 10px; color: var(--accent-blue); display: flex; align-items: center; gap: 2px;}
+
+        /* Bottom System Navigation Bar */
+        .dock-nav {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 86px;
+            background: rgba(8, 10, 25, 0.85);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-top: 1px solid var(--glass-border);
+            border-radius: 30px 30px 0 0;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 0 10px 16px 10px;
+            z-index: 100;
+        }
+
+        .nav-tab {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            color: var(--text-sub);
+            font-size: 10px;
+            cursor: pointer;
+            width: 60px;
+        }
+
+        .nav-tab:hover {
+            color: #fff;
+            transform: translateY(-4px) scale(1.05);
+        }
+
+        .nav-tab.active {
+            color: var(--accent-min);
+            color: #4aa3ff; /* Matching Forecast active state color */
+        }
+        
+        .nav-tab i { width: 22px; height: 22px; }
+
+        /* Central Hex/Circle Action Button */
+        .center-action {
+            position: relative;
+            top: -24px;
+        }
+
+        .hex-btn {
+            width: 62px;
+            height: 62px;
+            background: linear-gradient(135deg, #3d41f7 0%, #151673 100%);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            border: 4px solid #060716;
+            box-shadow: 0 10px 24px rgba(61, 65, 247, 0.4), inset 0 1px 1px rgba(255,255,255,0.4);
+            cursor: pointer;
+        }
+
+        .hex-btn:hover {
+            transform: scale(1.1) rotate(-5deg);
+            box-shadow: 0 15px 30px rgba(61, 65, 247, 0.6), 0 0 20px rgba(0, 212, 255, 0.4);
+            background: linear-gradient(135deg, #5054ff 0%, #1d1f94 100%);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-window">
+        <!-- Icon <defs> are injected by weather-data.js (WeatherApp.icons.ensureDefs)
+             so every condition (including Drizzle, Snow, Mist, Windy, Fog) is
+             available consistently across all pages. -->
+
+
+        <div class="scrollable-content">
+            
+            <!-- Top Header -->
+            <header class="top-bar">
+                <div class="btn-circle" onclick="window.location.href='index.html'"><i data-lucide="arrow-left" style="width: 20px;"></i></div>
+                <div class="header-title" id="headerTitle">7-Day Forecast</div>
+                <div class="btn-circle"><i data-lucide="share" style="width: 18px;"></i></div>
+            </header>
+
+            <!-- Toggle Segment -->
+            <div class="toggle-wrapper">
+                <div class="toggle-btn active" id="toggle7Btn">7 Days</div>
+                <div class="toggle-btn" id="toggle15Btn">15 Days</div>
+            </div>
+
+            <!-- Main Forecast List Card -->
+            <div class="forecast-list-card">
+                <div class="list-header">
+                    <span>Day</span>
+                    <span>Weather</span>
+                    <span style="text-align: center;">Min / Max</span>
+                    <span>Precipitation</span>
+                </div>
+
+                <!-- Forecast rows are rendered dynamically by renderForecast() -->
+                <div class="forecast-rows" id="forecastRows"></div>
+            </div>
+
+            <!-- Bottom Detail Insight Card -->
+            <div class="detail-card">
+                <div class="detail-card-content" id="detailContent">
+                    <!-- Top Summary -->
+                    <div class="detail-top">
+                        <div class="dt-left">
+                            <svg viewBox="0 0 100 100"><use id="dtIconUse" href="#icon-partly-cloudy"/></svg>
+                            <div class="dt-info">
+                                <h3 id="dtCondition">Partly Cloudy</h3>
+                                <p id="dtDescription">Partly cloudy skies throughout the day. Pleasant and warm.</p>
+                            </div>
+                        </div>
+                        <div class="dt-right">
+                            <span class="big-temp" id="dtBigTemp">33°</span>
+                            <span class="feel" id="dtFeel">Feels like 36°</span>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Weather Conditions Matrix -->
+                    <div class="metrics-grid">
+                        <div class="metric-item">
+                            <div class="mi-head"><i data-lucide="droplet" class="blue-icon"></i> Humidity</div>
+                            <div class="mi-val" id="mHumidity">67%</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="mi-head"><i data-lucide="wind" class="blue-icon"></i> Wind</div>
+                            <div class="mi-val" id="mWindVal">12 <span>km/h</span></div>
+                            <div class="mi-sub" id="mWindDir">NE</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="mi-head"><i data-lucide="sun" class="yellow-icon"></i> UV Index</div>
+                            <div class="mi-val" id="mUvVal">8</div>
+                            <div class="mi-sub" id="mUvLabel" style="color: #ff4b72;">Very High</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="mi-head"><i data-lucide="gauge" class="blue-icon"></i> Pressure</div>
+                            <div class="mi-val" id="mPressure">1012 <span>hPa</span></div>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <!-- Sun / Moon Matrix -->
+                    <div class="metrics-grid">
+                        <div class="metric-item">
+                            <div class="mi-head"><i data-lucide="sunrise" class="yellow-icon"></i> Sunrise</div>
+                            <div class="mi-val" id="mSunrise" style="font-size: 11px;">5:44 AM</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="mi-head"><i data-lucide="sunset" class="yellow-icon"></i> Sunset</div>
+                            <div class="mi-val" id="mSunset" style="font-size: 11px;">6:32 PM</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="mi-head"><i data-lucide="moon" style="color: #c0c5f8;"></i> Moonrise</div>
+                            <div class="mi-val" id="mMoonrise" style="font-size: 11px;">9:15 PM</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="mi-head"><i data-lucide="moon" style="color: #c0c5f8;"></i> Moonset</div>
+                            <div class="mi-val" id="mMoonset" style="font-size: 11px;">6:10 AM</div>
+                        </div>
+                    </div>
+
+                    <!-- Hourly Embed -->
+                    <div class="hourly-header">
+                        <h4>Hourly Forecast</h4>
+                        <a href="#">View All</a>
+                    </div>
+                    
+                    <div class="hourly-scroll" id="hourlyScroll">
+                        <!-- Hourly cards rendered dynamically by updateDetailCard() -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Sticky Dock Nav (Forecast tab is active on Page 2) -->
+        <nav class="dock-nav">
+            <div class="nav-tab" data-page="index.html">
+                <i data-lucide="home"></i>
+                <span>Home</span>
+            </div>
+            <div class="nav-tab active" data-page="pg2.html">
+                <i data-lucide="calendar"></i>
+                <span>Forecast</span>
+            </div>
+            
+            <div class="center-action">
+                <div class="hex-btn" data-page="prediction.html">
+                    <i data-lucide="cloud-lightning" style="width: 26px; height: 26px;"></i>
+                </div>
+            </div>
+            
+            <div class="nav-tab" data-page="pg3.html">
+                <i data-lucide="bar-chart-2"></i>
+                <span>Insights</span>
+            </div>
+            <div class="nav-tab" data-page="pg4.html">
+                <i data-lucide="user"></i>
+                <span>Profile</span>
+            </div>
+        </nav>
+
+    </div>
+
+    <script>
+        WeatherApp.icons.ensureDefs();
+
+        // App state — restored from and persisted back into the shared store
+        var storeState = WeatherApp.store.load();
+        var cityData = WeatherApp.getCityData(storeState.cityKey);
+        var currentMode = storeState.forecastMode || '7';
+        var selectedIndex = Math.max(0, Math.min(cityData.days.length - 1, storeState.selectedDayIndex || 0));
+
+        function refreshIcons() {
+            if (window.lucide && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            } else {
+                setTimeout(refreshIcons, 50);
+            }
+        }
+
+        // ==========================================================
+        // RENDERING
+        // ==========================================================
+        function buildRowHTML(dayObj) {
+            return `
+                <div class="day-row" data-index="${dayObj.index}">
+                    <div class="date-col">
+                        <span class="day-name">${dayObj.day}</span>
+                        <span class="date-sub">${dayObj.date}</span>
+                    </div>
+                    <div class="weather-col">
+                        <svg viewBox="0 0 100 100"><use href="#${dayObj.icon}"/></svg>
+                        <span class="cond-text">${dayObj.condition}</span>
+                    </div>
+                    <div class="temp-col">
+                        <div class="temp-vals"><span class="t-min">${dayObj.min}°</span> <span class="t-max">${dayObj.max}°</span></div>
+                        <div class="temp-bar-bg"><div class="temp-bar-fill" style="left: ${dayObj.barLeft}%; right: ${dayObj.barRight}%;"></div></div>
+                    </div>
+                    <div class="precip-col">
+                        <i data-lucide="droplet" class="drop"></i> ${dayObj.rain}% <i data-lucide="chevron-down" class="chev"></i>
+                    </div>
+                </div>`;
+        }
+
+        function renderForecast(mode) {
+            const count = mode === '7' ? 7 : 15;
+            const list = cityData.days.slice(0, count);
+            const rowsEl = document.getElementById('forecastRows');
+            rowsEl.innerHTML = list.map((d) => buildRowHTML(d)).join('');
+            highlightSelectedRow();
+            refreshIcons();
+        }
+
+        function highlightSelectedRow() {
+            document.querySelectorAll('#forecastRows .day-row').forEach(row => {
+                row.classList.toggle('selected-row', parseInt(row.dataset.index, 10) === selectedIndex);
+            });
+        }
+
+        function buildHourCardHTML(h) {
+            return `
+                <div class="hour-card${h.active ? ' active' : ''}">
+                    <span class="hc-time">${h.time}</span>
+                    <div class="hc-icon"><svg viewBox="0 0 100 100"><use href="#${h.icon}"/></svg></div>
+                    <span class="hc-temp">${h.temp}°</span>
+                    <div class="hc-rain"><i data-lucide="droplet" style="width:10px;"></i> ${h.rain}%</div>
+                </div>`;
+        }
+
+        function applyDetail(dayObj, metrics, hourly) {
+            document.getElementById('dtIconUse').setAttribute('href', '#' + dayObj.icon);
+            document.getElementById('dtCondition').textContent = dayObj.condition;
+            document.getElementById('dtDescription').textContent = metrics.description;
+            document.getElementById('dtBigTemp').textContent = WeatherApp.formatTemp(metrics.temp, storeState.unit);
+            document.getElementById('dtFeel').textContent = 'Feels like ' + WeatherApp.formatTemp(metrics.feelsLike, storeState.unit);
+
+            document.getElementById('mHumidity').textContent = metrics.humidity + '%';
+            document.getElementById('mWindVal').innerHTML = WeatherApp.convertWind(metrics.wind, storeState.windUnit) + ' <span>' + (storeState.windUnit === 'mph' ? 'mph' : 'km/h') + '</span>';
+            document.getElementById('mWindDir').textContent = metrics.windDir;
+
+            document.getElementById('mUvVal').textContent = metrics.uv;
+            const uvLabelEl = document.getElementById('mUvLabel');
+            uvLabelEl.textContent = metrics.uvLabel;
+            uvLabelEl.style.color = metrics.uvColor;
+
+            document.getElementById('mPressure').innerHTML = metrics.pressure + ' <span>hPa</span>';
+
+            document.getElementById('mSunrise').textContent = metrics.sunrise;
+            document.getElementById('mSunset').textContent = metrics.sunset;
+            document.getElementById('mMoonrise').textContent = metrics.moonrise;
+            document.getElementById('mMoonset').textContent = metrics.moonset;
+
+            document.getElementById('hourlyScroll').innerHTML = hourly.map(buildHourCardHTML).join('');
+            refreshIcons();
+        }
+
+        function updateDetailCard(idx, instant) {
+            const dayObj = cityData.days[idx];
+            const metrics = WeatherApp.generateMetrics(cityData.key, dayObj);
+            const hourly = WeatherApp.generateHourly(cityData.key, dayObj);
+            const content = document.getElementById('detailContent');
+
+            if (instant) {
+                applyDetail(dayObj, metrics, hourly);
+                return;
+            }
+
+            content.classList.add('fade-hidden');
+            setTimeout(() => {
+                applyDetail(dayObj, metrics, hourly);
+                content.classList.remove('fade-hidden');
+            }, 200);
+        }
+
+        // ==========================================================
+        // INTERACTIONS
+        // ==========================================================
+        function selectDay(idx) {
+            if (idx === selectedIndex) return;
+            selectedIndex = idx;
+            highlightSelectedRow();
+            updateDetailCard(idx, false);
+            // Keep Home (and every other page) in sync with this selection.
+            WeatherApp.store.setSelectedDay(idx);
+        }
+
+        function switchForecastMode(mode) {
+            if (mode === currentMode) return;
+            currentMode = mode;
+            WeatherApp.store.update({ forecastMode: mode });
+
+            document.getElementById('toggle7Btn').classList.toggle('active', mode === '7');
+            document.getElementById('toggle15Btn').classList.toggle('active', mode === '15');
+            document.getElementById('headerTitle').textContent = mode === '7' ? '7-Day Forecast' : '15-Day Forecast';
+
+            const maxIdx = mode === '7' ? 6 : 14;
+            const resetSelection = selectedIndex > maxIdx;
+            if (resetSelection) {
+                selectedIndex = 0;
+                WeatherApp.store.setSelectedDay(0);
+            }
+
+            const rowsEl = document.getElementById('forecastRows');
+            rowsEl.classList.add('fade-hidden');
+            setTimeout(() => {
+                renderForecast(mode);
+                rowsEl.classList.remove('fade-hidden');
+                if (resetSelection) updateDetailCard(selectedIndex, false);
+            }, 220);
+        }
+
+        document.getElementById('forecastRows').addEventListener('click', (e) => {
+            const row = e.target.closest('.day-row');
+            if (!row) return;
+            selectDay(parseInt(row.dataset.index, 10));
+        });
+
+        document.getElementById('toggle7Btn').addEventListener('click', () => switchForecastMode('7'));
+        document.getElementById('toggle15Btn').addEventListener('click', () => switchForecastMode('15'));
+
+        // ==========================================================
+        // BOTTOM DOCK NAVIGATION
+        // ==========================================================
+        document.querySelectorAll('.dock-nav [data-page]').forEach((el) => {
+            el.addEventListener('click', () => { window.location.href = el.dataset.page; });
+        });
+
+        // ==========================================================
+        // INITIAL RENDER (reflects whatever Home last selected)
+        // ==========================================================
+        document.getElementById('toggle7Btn').classList.toggle('active', currentMode === '7');
+        document.getElementById('toggle15Btn').classList.toggle('active', currentMode === '15');
+        document.getElementById('headerTitle').textContent = currentMode === '7' ? '7-Day Forecast' : '15-Day Forecast';
+        renderForecast(currentMode);
+        updateDetailCard(selectedIndex, true);
+
+        // Init vector icons (retry until the Lucide library has fully attached,
+        // so no icon is silently skipped if the CDN script finishes late)
+        refreshIcons();
+    </script>
+</body>
+</html>
+<script src="navigation.js"></script>
