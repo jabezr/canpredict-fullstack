@@ -1350,6 +1350,18 @@
         }
         @keyframes radarSpin { to { transform: translate(-50%, -50%) rotate(360deg); } }
         .radar-preview-card .radar-label { position: relative; z-index: 2; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+        .radar-preview-card .radar-soon-badge {
+            position: absolute;
+            top: 12px; right: 14px;
+            z-index: 2;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 3px 9px;
+            border-radius: 20px;
+            background: rgba(0, 210, 255, 0.15);
+            border: 1px solid rgba(0, 210, 255, 0.3);
+            color: var(--accent-blue);
+        }
 
         /* --- Weather detail popup content --- */
         .detail-metric-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--glass-border); font-size: 12px; }
@@ -1429,7 +1441,7 @@
                         <span id="currentLocationText">Chennai, India</span>
                         <i data-lucide="chevron-down" id="locationChevron" style="width: 14px; color: var(--text-secondary);"></i>
                     </div>
-                    <div class="page-dots">
+                    <div class="page-dots" id="pageDots">
                         <span></span>
                         <span class="active"></span>
                         <span></span>
@@ -1588,6 +1600,7 @@
             <!-- Weather Radar Preview -->
             <div class="radar-preview-card" id="radarPreviewCard">
                 <div class="radar-sweep"></div>
+                <span class="radar-soon-badge">Available Soon</span>
                 <div class="radar-label"><i data-lucide="radar" style="width:15px;"></i> Weather Radar</div>
             </div>
 
@@ -1784,11 +1797,44 @@
         WeatherApp.icons.ensureDefs();
         WeatherApp.overlay.bindEsc();
 
+        // -----------------------------------------------------------------
+        // PATCH: resilient Close (X) button handling.
+        // Every Close icon (modal, notifications, weather alert) is bound
+        // directly to its element elsewhere in this file. This delegated,
+        // document-level listener is added as a safety net so a Close (X)
+        // click always closes its popup even if a direct listener failed
+        // to attach (e.g. icon re-render timing) — it works by walking up
+        // from whatever was actually clicked (the icon glyph or any of its
+        // inner paths/lines) to the nearest known close-button container.
+        // -----------------------------------------------------------------
+        document.addEventListener('click', function (e) {
+            var target = e.target.closest('#modalCloseBtn, .modal-close, #notifCloseBtn, .notif-close, #weatherAlertClose, .alert-close-icon');
+            if (!target) return;
+            if (target.id === 'modalCloseBtn' || target.classList.contains('modal-close')) {
+                if (window.closeModal) window.closeModal();
+                return;
+            }
+            if (target.id === 'notifCloseBtn' || target.classList.contains('notif-close')) {
+                if (window.closeNotificationsPanel) window.closeNotificationsPanel();
+                return;
+            }
+            if (target.id === 'weatherAlertClose' || target.classList.contains('alert-close-icon')) {
+                var banner = document.getElementById('weatherAlertBanner');
+                if (banner) {
+                    banner.style.display = 'none';
+                    try {
+                        localStorage.setItem('wa_alert_dismissed_' + new Date().toDateString(), '1');
+                    } catch (err) { /* ignore */ }
+                }
+            }
+        });
+
         // Latest rendered metrics/prediction, kept around so popups & the
         // alert banner can read live values without re-deriving them.
         var currentMetrics = null;
         var currentDayObj = null;
         var currentHourObj = null;
+        var currentPrediction = null;
 
         // ---------------------------------------------------------------
         // Premium Slide-Out Navigation Drawer (Sidebar)
@@ -1967,6 +2013,18 @@
         }
 
         // ---------------------------------------------------------------
+        // Weather Radar (not implemented yet — card is a placeholder)
+        // ---------------------------------------------------------------
+        (function () {
+            var radarCard = document.getElementById('radarPreviewCard');
+            if (radarCard) {
+                radarCard.addEventListener('click', function () {
+                    showToast('Weather Radar is coming soon', 'radar');
+                });
+            }
+        })();
+
+        // ---------------------------------------------------------------
         // Generic Premium Glass Modal
         // ---------------------------------------------------------------
         (function () {
@@ -2007,7 +2065,12 @@
         })();
 
         // ---------------------------------------------------------------
-        // Notification Panel
+        // Notification Panel — notifications are now generated from the
+        // real data most recently fetched by renderAll() (current
+        // conditions + tomorrow's prediction), instead of a fixed fake
+        // list. Read/unread state is tracked by a stable notification
+        // "key" (e.g. 'uv-alert') so it survives regeneration on every
+        // refresh — only genuinely new conditions show as unread.
         // ---------------------------------------------------------------
         (function () {
             const notifBtn = document.getElementById('notificationBtn');
@@ -2019,12 +2082,96 @@
             const markAllReadBtn = document.getElementById('markAllReadBtn');
             const clearAllBtn = document.getElementById('clearAllBtn');
 
-            let notifications = [
-                { id: 1, icon: 'cloud-rain', title: 'Rain expected tomorrow', time: '2m ago', desc: 'Light to moderate rain expected tomorrow afternoon with 70% chance.', unread: true },
-                { id: 2, icon: 'bot', title: 'AI Prediction Updated', time: '25m ago', desc: 'Your 7-day AI weather prediction model has refreshed with new data.', unread: true },
-                { id: 3, icon: 'refresh-cw', title: 'Weather synced successfully', time: '1h ago', desc: 'Latest weather data has been synced across all your saved locations.', unread: true },
-                { id: 4, icon: 'sun', title: 'Severe UV Alert', time: '3h ago', desc: 'UV index has reached very high levels. Limit outdoor exposure today.', unread: false }
-            ];
+            var readNotificationKeys = {};
+            var dismissedNotificationKeys = {};
+            let notifications = [];
+
+            function relativeTimeFrom(isoString) {
+                if (!isoString) return 'just now';
+                var then = new Date(isoString).getTime();
+                if (isNaN(then)) return 'just now';
+                var diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
+                if (diffSec < 10) return 'Just now';
+                if (diffSec < 60) return diffSec + 's ago';
+                var diffMin = Math.round(diffSec / 60);
+                if (diffMin < 60) return diffMin + (diffMin === 1 ? ' minute ago' : ' minutes ago');
+                var diffHr = Math.round(diffMin / 60);
+                return diffHr + (diffHr === 1 ? ' hour ago' : ' hours ago');
+            }
+
+            function buildRealNotifications() {
+                var state = WeatherApp.store.load();
+                var syncTime = relativeTimeFrom(state.lastUpdated);
+                var raw = [];
+
+                raw.push({
+                    key: 'sync',
+                    icon: 'refresh-cw',
+                    title: 'Weather synced successfully',
+                    desc: 'Latest weather data for ' + state.cityDisplay + ' has been refreshed.'
+                });
+
+                if (currentPrediction) {
+                    if (currentPrediction.rainProbability >= 50) {
+                        raw.push({
+                            key: 'rain-tomorrow',
+                            icon: 'cloud-rain',
+                            title: currentPrediction.condition + ' expected tomorrow',
+                            desc: currentPrediction.rainProbability + '% chance of rain \u2014 ' + currentPrediction.recommendation,
+                        });
+                    }
+                    if (currentPrediction.riskLevel === 'High') {
+                        raw.push({
+                            key: 'storm-risk',
+                            icon: 'cloud-lightning',
+                            title: 'High weather risk tomorrow',
+                            desc: currentPrediction.recommendation,
+                        });
+                    }
+                }
+
+                if (currentMetrics) {
+                    if (currentMetrics.uvLabel === 'Very High' || currentMetrics.uvLabel === 'High') {
+                        raw.push({
+                            key: 'uv-alert',
+                            icon: 'sun',
+                            title: currentMetrics.uvLabel + ' UV levels right now',
+                            desc: 'UV index is currently ' + currentMetrics.uv + '. Limit outdoor exposure and wear sunscreen.',
+                        });
+                    }
+                    if (currentMetrics.aqi > 100) {
+                        raw.push({
+                            key: 'aqi-alert',
+                            icon: 'wind',
+                            title: 'Air quality: ' + currentMetrics.aqiLabel,
+                            desc: 'AQI is currently ' + currentMetrics.aqi + ' in ' + state.cityDisplay + '.',
+                        });
+                    }
+                    var windKmh = WeatherApp.convertWind(currentMetrics.wind, 'kmh');
+                    if (windKmh > 30) {
+                        raw.push({
+                            key: 'wind-alert',
+                            icon: 'wind',
+                            title: 'Strong winds right now',
+                            desc: 'Wind speed is currently ' + windKmh + ' km/h. Secure loose outdoor items.',
+                        });
+                    }
+                }
+
+                return raw
+                    .filter(function (n) { return !dismissedNotificationKeys[n.key]; })
+                    .map(function (n, i) {
+                        return {
+                            id: i + 1,
+                            key: n.key,
+                            icon: n.icon,
+                            title: n.title,
+                            time: syncTime,
+                            desc: n.desc,
+                            unread: !readNotificationKeys[n.key],
+                        };
+                    });
+            }
 
             function renderNotifications() {
                 if (!notifications.length) {
@@ -2049,9 +2196,14 @@
                 if (notifDot) notifDot.classList.toggle('hidden', !hasUnread);
             }
 
+            function refreshRealNotifications() {
+                notifications = buildRealNotifications();
+                renderNotifications();
+            }
+
             function openNotifications() {
                 WeatherApp.overlay.closeAllExcept('notifications');
-                renderNotifications();
+                refreshRealNotifications();
                 notifBackdrop.classList.add('active');
                 notifPanel.classList.add('active');
                 WeatherApp.overlay.opened('notifications');
@@ -2075,20 +2227,27 @@
                     if (!item) return;
                     const id = parseInt(item.dataset.id, 10);
                     const n = notifications.find(function (x) { return x.id === id; });
-                    if (n) n.unread = false;
+                    if (n) {
+                        n.unread = false;
+                        readNotificationKeys[n.key] = true;
+                    }
                     renderNotifications();
                 });
             }
 
             if (markAllReadBtn) {
                 markAllReadBtn.addEventListener('click', function () {
-                    notifications.forEach(function (n) { n.unread = false; });
+                    notifications.forEach(function (n) {
+                        n.unread = false;
+                        readNotificationKeys[n.key] = true;
+                    });
                     renderNotifications();
                 });
             }
 
             if (clearAllBtn) {
                 clearAllBtn.addEventListener('click', function () {
+                    notifications.forEach(function (n) { dismissedNotificationKeys[n.key] = true; });
                     notifications = [];
                     renderNotifications();
                 });
@@ -2096,6 +2255,7 @@
 
             renderNotifications();
 
+            window.refreshRealNotifications = refreshRealNotifications;
             window.openNotificationsPanel = openNotifications;
             window.closeNotificationsPanel = closeNotifications;
         })();
@@ -2136,12 +2296,16 @@
             document.querySelectorAll('.loc-city-option').forEach(function (item) {
                 item.addEventListener('click', function () {
                     const cityQuery = item.dataset.city;
-                    WeatherApp.store.setCity(cityQuery);
-                    document.querySelectorAll('.loc-city-option').forEach(function (o) { o.classList.remove('selected'); });
-                    item.classList.add('selected');
                     closeLocationDropdown();
-                    renderAll();
-                    showToast('Location switched to ' + cityQuery.split(',')[0], 'map-pin');
+                    WeatherApp.store.setCity(cityQuery).then(function () {
+                        document.querySelectorAll('.loc-city-option').forEach(function (o) { o.classList.remove('selected'); });
+                        item.classList.add('selected');
+                        return renderAll();
+                    }).then(function () {
+                        showToast('Location switched to ' + cityQuery.split(',')[0], 'map-pin');
+                    }).catch(function (err) {
+                        showToast((err && err.message) || 'Could not switch location.', 'alert-triangle', true);
+                    });
                 });
             });
 
@@ -2155,7 +2319,14 @@
             if (ddManageLocations) {
                 ddManageLocations.addEventListener('click', function () {
                     closeLocationDropdown();
-                    openModal('Saved Locations', buildSavedLocationsHtml());
+                    openModal('Saved Locations', '<div style="text-align:center;padding:20px;color:var(--text-secondary);font-size:12px;">Loading\u2026</div>');
+                    buildSavedLocationsHtml().then(function (html) {
+                        var modalBody = document.getElementById('modalBody');
+                        if (modalBody) { modalBody.innerHTML = html; lucide.createIcons(); }
+                    }).catch(function () {
+                        var modalBody = document.getElementById('modalBody');
+                        if (modalBody) modalBody.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary);font-size:12px;">Could not load saved locations.</div>';
+                    });
                 });
             }
 
@@ -2174,16 +2345,25 @@
             const searchDropdown = document.getElementById('searchDropdown');
             const voiceSearchBtn = document.getElementById('voiceSearchBtn');
 
-            var CITY_DB = Object.keys(WeatherApp.CITY_PROFILES).map(function (k) { return WeatherApp.CITY_PROFILES[k].display; });
+            var CITY_DB = WeatherApp.POPULAR_CITIES;
             var activeSuggestionIndex = -1;
 
             function openDropdown() {
                 renderDropdownDefault();
+                WeatherApp.overlay.closeAllExcept('searchDropdown');
                 searchDropdown.classList.add('active');
+                WeatherApp.overlay.opened('searchDropdown');
             }
 
             function closeDropdown() {
                 searchDropdown.classList.remove('active');
+                WeatherApp.overlay.closed('searchDropdown');
+            }
+
+            function markSearchDropdownOpen() {
+                WeatherApp.overlay.closeAllExcept('searchDropdown');
+                searchDropdown.classList.add('active');
+                WeatherApp.overlay.opened('searchDropdown');
             }
 
             function showClearBtn(show) {
@@ -2228,7 +2408,7 @@
                 matches = matches.slice(0, 6);
                 activeSuggestionIndex = -1;
                 if (!matches.length) {
-                    searchDropdown.innerHTML = '<div class="search-error"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>City not found. Try Chennai, Bangalore, Mumbai, Delhi, Hyderabad, Chengalpattu, Kolkata, Pune, Madurai, Kochi, or Jaipur.</div>';
+                    searchDropdown.innerHTML = '<div class="search-error"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>No quick suggestions, but you can still search for any city — press Enter.</div>';
                 } else {
                     searchDropdown.innerHTML = '<div class="search-dropdown-title">Suggestions</div>' +
                         matches.map(function (c) {
@@ -2242,7 +2422,7 @@
                     });
                 }
                 if (window.lucide) lucide.createIcons();
-                searchDropdown.classList.add('active');
+                markSearchDropdownOpen();
                 return true;
             }
 
@@ -2251,7 +2431,7 @@
 
                 if (!query) {
                     searchDropdown.innerHTML = '<div class="search-error"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>Please enter a city name to search.</div>';
-                    searchDropdown.classList.add('active');
+                    markSearchDropdownOpen();
                     lucide.createIcons();
                     return;
                 }
@@ -2259,25 +2439,25 @@
                 searchSpinner.classList.add('active');
                 closeDropdown();
 
-                setTimeout(function () {
+                WeatherApp.store.setCity(query).then(function () {
+                    return renderAll();
+                }).then(function () {
                     searchSpinner.classList.remove('active');
-                    const key = WeatherApp.resolveCityKey(query);
-
-                    if (key) {
-                        const display = WeatherApp.CITY_PROFILES[key].display;
-                        WeatherApp.store.setCity(key);
-                        renderAll();
-                        searchDropdown.innerHTML = '<div class="search-dropdown-title">Result</div>' +
-                            '<div class="search-result-item"><span class="search-result-city"><i data-lucide="map-pin"></i>' + display + '</span><span class="search-result-temp">' + currentMetrics.temp + '&deg; &middot; ' + currentDayObj.condition + '</span></div>';
-                        searchDropdown.classList.add('active');
-                        lucide.createIcons();
-                        showToast('Showing weather for ' + display, 'map-pin');
-                    } else {
-                        searchDropdown.innerHTML = '<div class="search-error"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>City not found. Please check the spelling and try again.</div>';
-                        searchDropdown.classList.add('active');
-                        lucide.createIcons();
-                    }
-                }, 700);
+                    var display = WeatherApp.store.load().cityDisplay;
+                    searchDropdown.innerHTML = '<div class="search-dropdown-title">Result</div>' +
+                        '<div class="search-result-item"><span class="search-result-city"><i data-lucide="map-pin"></i>' + display + '</span><span class="search-result-temp">' + currentMetrics.temp + '&deg; &middot; ' + currentDayObj.condition + '</span></div>';
+                    markSearchDropdownOpen();
+                    lucide.createIcons();
+                    showToast('Showing weather for ' + display, 'map-pin');
+                }).catch(function (err) {
+                    searchSpinner.classList.remove('active');
+                    var message = (err && err.status === 404)
+                        ? 'City not found. Please check the spelling and try again.'
+                        : ((err && err.message) || 'Something went wrong. Please try again.');
+                    searchDropdown.innerHTML = '<div class="search-error"><i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>' + message + '</div>';
+                    markSearchDropdownOpen();
+                    lucide.createIcons();
+                });
             }
 
             if (searchInput) {
@@ -2383,13 +2563,19 @@
 
                 navigator.geolocation.getCurrentPosition(
                     function (position) {
-                        locateBtn.classList.remove('loading');
                         const lat = position.coords.latitude;
                         const lng = position.coords.longitude;
-                        WeatherApp.store.setCustomLocation('Current Location', lat, lng);
-                        renderAll();
-                        hideSkeleton();
-                        showToast('Location found: ' + lat.toFixed(3) + ', ' + lng.toFixed(3), 'locate-fixed');
+                        WeatherApp.store.setCustomLocation('Current Location', lat, lng).then(function () {
+                            return renderAll();
+                        }).then(function () {
+                            locateBtn.classList.remove('loading');
+                            hideSkeleton();
+                            showToast('Location found: ' + lat.toFixed(3) + ', ' + lng.toFixed(3), 'locate-fixed');
+                        }).catch(function (err) {
+                            locateBtn.classList.remove('loading');
+                            hideSkeleton();
+                            showToast((err && err.message) || 'Unable to resolve your location right now.', 'alert-triangle', true);
+                        });
                     },
                     function (error) {
                         locateBtn.classList.remove('loading');
@@ -2444,19 +2630,20 @@
             var syncText = document.getElementById('syncText');
             if (refreshIcon) refreshIcon.classList.add('refresh-spin');
             if (syncText) syncText.textContent = 'Refreshing...';
-            showSkeleton();
 
-            setTimeout(function () {
-                // Re-derive everything from the shared store (a real backend
-                // swap would simply re-fetch here instead).
-                renderAll();
-                hideSkeleton();
+            // renderAll() manages its own skeleton show/hide and re-fetches
+            // everything fresh from the backend — that IS the refresh.
+            renderAll().then(function () {
                 if (refreshIcon) refreshIcon.classList.remove('refresh-spin');
                 startTicking();
                 isRefreshing = false;
                 showToast('Weather refreshed successfully', 'refresh-cw');
                 if (done) done();
-            }, 900);
+            }).catch(function () {
+                if (refreshIcon) refreshIcon.classList.remove('refresh-spin');
+                isRefreshing = false;
+                if (done) done();
+            });
         }
 
         (function () {
@@ -2527,20 +2714,19 @@
                                 newCityInput.placeholder = 'Please enter a city name';
                                 return;
                             }
-                            const key = WeatherApp.resolveCityKey(val);
-                            if (key) {
-                                WeatherApp.store.setCity(key);
-                            } else {
-                                // Unknown city name — still generate a full,
-                                // consistent dataset for it via a deterministic
-                                // pseudo-coordinate hash.
-                                var hash = 0;
-                                for (var i = 0; i < val.length; i++) hash += val.charCodeAt(i) * (i + 1);
-                                WeatherApp.store.setCustomLocation(val, hash % 90, (hash * 3) % 180);
-                            }
-                            renderAll();
-                            closeModal();
-                            showToast(val + ' added to your locations', 'map-pin');
+                            confirmBtn.disabled = true;
+                            confirmBtn.textContent = 'Adding\u2026';
+                            WeatherApp.store.setCity(val).then(function () {
+                                return renderAll();
+                            }).then(function () {
+                                closeModal();
+                                showToast(val + ' added to your locations', 'map-pin');
+                            }).catch(function (err) {
+                                confirmBtn.disabled = false;
+                                confirmBtn.textContent = 'Add';
+                                newCityInput.style.borderColor = '#ff6b8a';
+                                showToast((err && err.status === 404) ? 'City not found. Check the spelling and try again.' : ((err && err.message) || 'Could not add that city.'), 'alert-triangle', true);
+                            });
                         });
                     }
                     if (newCityInput) {
@@ -2559,29 +2745,37 @@
         function buildSavedLocationsHtml() {
             var state = WeatherApp.store.load();
             var names = state.searchHistory.length ? state.searchHistory : [state.cityDisplay];
-            return names.map(function (name) {
-                var key = WeatherApp.resolveCityKey(name);
-                var data = WeatherApp.getCityData(key || state.cityKey);
-                var metrics = WeatherApp.generateMetrics(data.key, data.days[0]);
-                return '<div class="list-card-item"><div class="list-card-icon"><i data-lucide="map-pin"></i></div>' +
-                    '<div class="list-card-meta"><div class="list-card-city">' + name.split(',')[0] + '</div><div class="list-card-sub">' + name + '</div></div>' +
-                    '<div class="list-card-temp">' + WeatherApp.formatTemp(metrics.temp, state.unit) + '</div></div>';
-            }).join('');
+            return Promise.all(names.map(function (name) {
+                return WeatherApp.getCityData(name).then(function (data) {
+                    return WeatherApp.generateMetrics(name, data.days[0]).then(function (metrics) {
+                        return '<div class="list-card-item"><div class="list-card-icon"><i data-lucide="map-pin"></i></div>' +
+                            '<div class="list-card-meta"><div class="list-card-city">' + name.split(',')[0] + '</div><div class="list-card-sub">' + name + '</div></div>' +
+                            '<div class="list-card-temp">' + WeatherApp.formatTemp(metrics.temp, state.unit) + '</div></div>';
+                    });
+                }).catch(function () {
+                    return '<div class="list-card-item"><div class="list-card-icon"><i data-lucide="map-pin"></i></div>' +
+                        '<div class="list-card-meta"><div class="list-card-city">' + name.split(',')[0] + '</div><div class="list-card-sub">Unavailable right now</div></div></div>';
+                });
+            })).then(function (rows) { return rows.join(''); });
         }
 
         function buildFavoritesHtml() {
             var state = WeatherApp.store.load();
             if (!state.favorites.length) {
-                return '<div class="coming-soon-box"><div class="cs-icon"><i data-lucide="star"></i></div><h4>No Favorites Yet</h4><p>Tap the star on the Home screen to save a city as a favorite.</p></div>';
+                return Promise.resolve('<div class="coming-soon-box"><div class="cs-icon"><i data-lucide="star"></i></div><h4>No Favorites Yet</h4><p>Tap the star on the Home screen to save a city as a favorite.</p></div>');
             }
-            return state.favorites.map(function (name) {
-                var key = WeatherApp.resolveCityKey(name);
-                var data = WeatherApp.getCityData(key || state.cityKey);
-                var metrics = WeatherApp.generateMetrics(data.key, data.days[0]);
-                return '<div class="list-card-item"><div class="list-card-icon"><i data-lucide="star"></i></div>' +
-                    '<div class="list-card-meta"><div class="list-card-city">' + name.split(',')[0] + '</div><div class="list-card-sub">' + data.days[0].condition + '</div></div>' +
-                    '<div class="list-card-temp">' + WeatherApp.formatTemp(metrics.temp, state.unit) + '</div></div>';
-            }).join('');
+            return Promise.all(state.favorites.map(function (name) {
+                return WeatherApp.getCityData(name).then(function (data) {
+                    return WeatherApp.generateMetrics(name, data.days[0]).then(function (metrics) {
+                        return '<div class="list-card-item"><div class="list-card-icon"><i data-lucide="star"></i></div>' +
+                            '<div class="list-card-meta"><div class="list-card-city">' + name.split(',')[0] + '</div><div class="list-card-sub">' + data.days[0].condition + '</div></div>' +
+                            '<div class="list-card-temp">' + WeatherApp.formatTemp(metrics.temp, state.unit) + '</div></div>';
+                    });
+                }).catch(function () {
+                    return '<div class="list-card-item"><div class="list-card-icon"><i data-lucide="star"></i></div>' +
+                        '<div class="list-card-meta"><div class="list-card-city">' + name.split(',')[0] + '</div><div class="list-card-sub">Unavailable right now</div></div></div>';
+                });
+            })).then(function (rows) { return rows.join(''); });
         }
 
         (function () {
@@ -2595,13 +2789,21 @@
 
             if (menuFavorites) {
                 menuFavorites.addEventListener('click', function () {
-                    openModal('Favorites', buildFavoritesHtml());
+                    openModal('Favorites', '<div style="text-align:center;padding:20px;color:var(--text-secondary);font-size:12px;">Loading\u2026</div>');
+                    buildFavoritesHtml().then(function (html) {
+                        var modalBody = document.getElementById('modalBody');
+                        if (modalBody) { modalBody.innerHTML = html; lucide.createIcons(); }
+                    });
                 });
             }
 
             if (menuSavedLocations) {
                 menuSavedLocations.addEventListener('click', function () {
-                    openModal('Saved Locations', buildSavedLocationsHtml());
+                    openModal('Saved Locations', '<div style="text-align:center;padding:20px;color:var(--text-secondary);font-size:12px;">Loading\u2026</div>');
+                    buildSavedLocationsHtml().then(function (html) {
+                        var modalBody = document.getElementById('modalBody');
+                        if (modalBody) { modalBody.innerHTML = html; lucide.createIcons(); }
+                    });
                 });
             }
 
@@ -3013,12 +3215,8 @@
             }
             var sunriseVal = document.getElementById('sunriseVal');
             var sunsetVal = document.getElementById('sunsetVal');
-            var goldenHourTag = document.getElementById('goldenHourTag');
             if (sunriseVal) sunriseVal.textContent = currentMetrics.sunrise;
             if (sunsetVal) sunsetVal.textContent = currentMetrics.sunset;
-            if (goldenHourTag) {
-                var goldenStart = WeatherApp.CITY_PROFILES ? currentMetrics.sunset : '';
-            }
         }
 
         // -----------------------------------------------------------
@@ -3041,6 +3239,52 @@
         }
 
         // -----------------------------------------------------------
+        // PAGE DOTS — one dot per recently-visited location (up to 5),
+        // with the active dot showing where the CURRENT location sits in
+        // that list. Tapping a dot switches to that location, so the
+        // active dot visibly moves as you switch between your recent
+        // locations (previously this row was 5 static, non-functional dots).
+        // -----------------------------------------------------------
+        (function () {
+            var pageDots = document.getElementById('pageDots');
+            if (!pageDots) return;
+
+            function cityKeyOf(name) {
+                return (name || '').split(',')[0].trim().toLowerCase();
+            }
+
+            function renderPageDots() {
+                var state = WeatherApp.store.load();
+                var known = state.searchHistory.length ? state.searchHistory.slice(-5) : [state.cityDisplay];
+                var currentKey = cityKeyOf(state.cityDisplay);
+                var activeIdx = known.findIndex(function (name) { return cityKeyOf(name) === currentKey; });
+                if (activeIdx === -1) {
+                    known = known.slice(-4).concat([state.cityDisplay]);
+                    activeIdx = known.length - 1;
+                }
+                pageDots.innerHTML = known.map(function (name, i) {
+                    return '<span class="' + (i === activeIdx ? 'active' : '') + '" data-dot-city="' + name.replace(/"/g, '&quot;') + '" title="' + name.replace(/"/g, '&quot;') + '"></span>';
+                }).join('');
+            }
+
+            pageDots.addEventListener('click', function (e) {
+                var dot = e.target.closest('[data-dot-city]');
+                if (!dot) return;
+                var cityName = dot.dataset.dotCity;
+                var state = WeatherApp.store.load();
+                if (cityKeyOf(cityName) === cityKeyOf(state.cityDisplay)) return;
+                WeatherApp.store.setCity(cityName.split(',')[0].trim()).then(function () {
+                    return renderAll();
+                }).catch(function (err) {
+                    showToast((err && err.message) || 'Could not switch location.', 'alert-triangle', true);
+                });
+            });
+
+            window.renderPageDots = renderPageDots;
+            renderPageDots();
+        })();
+
+        // -----------------------------------------------------------
         // KEYBOARD SHORTCUTS ( "/" focuses search; ESC handled globally
         // by WeatherApp.overlay.bindEsc() )
         // -----------------------------------------------------------
@@ -3058,10 +3302,13 @@
         // part of the Home page in sync with the shared weather store.
         // Called on load, and after every action that changes the store
         // (search, geolocation, city switch, hourly/day click, unit
-        // toggle, refresh).
+        // toggle, refresh). Now ASYNC: every value comes from a real
+        // network call to the backend, so this can fail (network down,
+        // backend down, unknown city) — errors are surfaced via toast
+        // rather than silently falling back to fake numbers.
         // =================================================================
-        function renderHourly(cityKey, dayObj, selectedHourIndex) {
-            var hourly = WeatherApp.generateHourly(cityKey, dayObj);
+        async function renderHourly(locationDescriptor, dayObj, selectedHourIndex) {
+            var hourly = await WeatherApp.generateHourly(locationDescriptor, dayObj);
             var container = document.getElementById('hourlyRowScroller');
             if (!container) return hourly;
             container.innerHTML = hourly.map(function (h, i) {
@@ -3075,7 +3322,7 @@
             return hourly;
         }
 
-        function renderSevenDay(cityKey, days, selectedDayIndex) {
+        function renderSevenDay(_unusedLocationLabel, days, selectedDayIndex) {
             var container = document.getElementById('sevenDayContainer');
             if (!container) return;
             var list = days.slice(0, 7);
@@ -3092,73 +3339,107 @@
             lucide.createIcons();
         }
 
-        function renderAll() {
+        // Guards against out-of-order renders: if the user fires off a
+        // second renderAll() (e.g. clicks another day) before the first
+        // one's network calls resolve, the stale first call becomes a
+        // no-op instead of overwriting the newer, correct result.
+        var renderToken = 0;
+
+        async function renderAll() {
+            var myToken = ++renderToken;
             var state = WeatherApp.store.load();
-            var cityData = WeatherApp.getCityData(state.cityKey);
-            var dayIndex = Math.max(0, Math.min(cityData.days.length - 1, state.selectedDayIndex));
-            var dayObj = cityData.days[dayIndex];
-            var metrics = WeatherApp.generateMetrics(cityData.key, dayObj);
-            var hourly = renderHourly(cityData.key, dayObj, state.selectedHourIndex);
-            renderSevenDay(cityData.key, cityData.days, dayIndex);
+            var locationDescriptor = WeatherApp.store.currentLocationDescriptor(state);
 
-            var hourIndex = Math.max(0, Math.min(hourly.length - 1, state.selectedHourIndex));
-            var hourObj = hourly[hourIndex];
+            showSkeleton();
+            try {
+                var cityData = await WeatherApp.getCityData(locationDescriptor);
+                if (myToken !== renderToken) return;
 
-            currentDayObj = dayObj;
-            currentHourObj = hourObj;
-            currentMetrics = metrics;
+                var dayIndex = Math.max(0, Math.min(cityData.days.length - 1, state.selectedDayIndex));
+                var dayObj = cityData.days[dayIndex];
 
-            var feelsDelta = metrics.feelsLike - metrics.temp;
-            var heroTemp = hourObj.temp;
-            var heroFeel = heroTemp + feelsDelta;
-            var heroCondLabel = dayIndex === 0 ? dayObj.condition : dayObj.condition;
+                var results = await Promise.all([
+                    WeatherApp.generateMetrics(locationDescriptor, dayObj),
+                    renderHourly(locationDescriptor, dayObj, state.selectedHourIndex),
+                    WeatherApp.generatePrediction(locationDescriptor)
+                ]);
+                if (myToken !== renderToken) return;
 
-            var locationTextEl = document.getElementById('currentLocationText');
-            if (locationTextEl) locationTextEl.textContent = state.cityDisplay;
+                var metrics = results[0];
+                var hourly = results[1];
+                var prediction = results[2];
 
-            var heroTempEl = document.getElementById('heroTemp');
-            var heroCondEl = document.getElementById('heroCond');
-            var heroFeelEl = document.getElementById('heroFeel');
-            if (heroTempEl) heroTempEl.textContent = WeatherApp.formatTemp(heroTemp, state.unit);
-            if (heroCondEl) heroCondEl.textContent = heroCondLabel;
-            if (heroFeelEl) heroFeelEl.textContent = 'Feels like ' + WeatherApp.formatTemp(heroFeel, state.unit);
-            setHeroIcon(heroCondLabel);
-            updateDynamicBackground(heroCondLabel);
+                renderSevenDay(cityData.key, cityData.days, dayIndex);
 
-            var hiLoSpans = document.querySelectorAll('.hi-lo-group span');
-            if (hiLoSpans[0]) hiLoSpans[0].innerHTML = '<i data-lucide="arrow-up" style="width:14px;"></i>' + WeatherApp.formatTemp(dayObj.max, state.unit);
-            if (hiLoSpans[1]) hiLoSpans[1].innerHTML = '<i data-lucide="arrow-down" style="width:14px;"></i>' + WeatherApp.formatTemp(dayObj.min, state.unit);
+                var hourIndex = Math.max(0, Math.min(hourly.length - 1, state.selectedHourIndex));
+                var hourObj = hourly[hourIndex];
 
-            var unitTogglePill = document.getElementById('unitTogglePill');
-            if (unitTogglePill) unitTogglePill.innerHTML = state.unit === 'F' ? '&deg;F' : '&deg;C';
+                currentDayObj = dayObj;
+                currentHourObj = hourObj;
+                currentMetrics = metrics;
 
-            var statHumidity = document.getElementById('statHumidity');
-            var statHumidityLbl = document.getElementById('statHumidityLbl');
-            var statWind = document.getElementById('statWind');
-            var statWindLbl = document.getElementById('statWindLbl');
-            var statAqi = document.getElementById('statAqi');
-            var statAqiLbl = document.getElementById('statAqiLbl');
-            var statUv = document.getElementById('statUv');
-            var statUvLbl = document.getElementById('statUvLbl');
-            if (statHumidity) statHumidity.textContent = metrics.humidity + '%';
-            if (statHumidityLbl) statHumidityLbl.textContent = metrics.humidityLabel;
-            if (statWind) statWind.textContent = WeatherApp.convertWind(metrics.wind, state.windUnit);
-            if (statWindLbl) statWindLbl.textContent = metrics.windDir;
-            if (statAqi) statAqi.textContent = metrics.aqi;
-            if (statAqiLbl) { statAqiLbl.textContent = metrics.aqiLabel; statAqiLbl.style.color = metrics.aqiColor; }
-            if (statUv) statUv.textContent = metrics.uv;
-            if (statUvLbl) { statUvLbl.textContent = metrics.uvLabel; statUvLbl.style.color = metrics.uvColor; }
+                var feelsDelta = metrics.feelsLike - metrics.temp;
+                var heroTemp = hourObj.temp;
+                var heroFeel = heroTemp + feelsDelta;
+                var heroCondLabel = dayObj.condition;
 
-            var aiDesc = document.querySelector('.ai-desc');
-            if (aiDesc) {
-                var prediction = WeatherApp.generatePrediction(cityData.key, cityData.days);
-                aiDesc.textContent = prediction.condition + ' expected tomorrow with a ' + prediction.rainProbability + '% chance of rain.';
+                var locationTextEl = document.getElementById('currentLocationText');
+                if (locationTextEl) locationTextEl.textContent = state.cityDisplay;
+
+                var heroTempEl = document.getElementById('heroTemp');
+                var heroCondEl = document.getElementById('heroCond');
+                var heroFeelEl = document.getElementById('heroFeel');
+                if (heroTempEl) heroTempEl.textContent = WeatherApp.formatTemp(heroTemp, state.unit);
+                if (heroCondEl) heroCondEl.textContent = heroCondLabel;
+                if (heroFeelEl) heroFeelEl.textContent = 'Feels like ' + WeatherApp.formatTemp(heroFeel, state.unit);
+                setHeroIcon(heroCondLabel);
+                updateDynamicBackground(heroCondLabel);
+
+                var hiLoSpans = document.querySelectorAll('.hi-lo-group span');
+                if (hiLoSpans[0]) hiLoSpans[0].innerHTML = '<i data-lucide="arrow-up" style="width:14px;"></i>' + WeatherApp.formatTemp(dayObj.max, state.unit);
+                if (hiLoSpans[1]) hiLoSpans[1].innerHTML = '<i data-lucide="arrow-down" style="width:14px;"></i>' + WeatherApp.formatTemp(dayObj.min, state.unit);
+
+                var unitTogglePill = document.getElementById('unitTogglePill');
+                if (unitTogglePill) unitTogglePill.innerHTML = state.unit === 'F' ? '&deg;F' : '&deg;C';
+
+                var statHumidity = document.getElementById('statHumidity');
+                var statHumidityLbl = document.getElementById('statHumidityLbl');
+                var statWind = document.getElementById('statWind');
+                var statWindLbl = document.getElementById('statWindLbl');
+                var statAqi = document.getElementById('statAqi');
+                var statAqiLbl = document.getElementById('statAqiLbl');
+                var statUv = document.getElementById('statUv');
+                var statUvLbl = document.getElementById('statUvLbl');
+                if (statHumidity) statHumidity.textContent = metrics.humidity + '%';
+                if (statHumidityLbl) statHumidityLbl.textContent = metrics.humidityLabel;
+                if (statWind) statWind.textContent = WeatherApp.convertWind(metrics.wind, state.windUnit);
+                if (statWindLbl) statWindLbl.textContent = metrics.windDir;
+                if (statAqi) statAqi.textContent = metrics.aqi;
+                if (statAqiLbl) { statAqiLbl.textContent = metrics.aqiLabel; statAqiLbl.style.color = metrics.aqiColor; }
+                if (statUv) statUv.textContent = metrics.uv;
+                if (statUvLbl) { statUvLbl.textContent = metrics.uvLabel; statUvLbl.style.color = metrics.uvColor; }
+
+                var aiDesc = document.querySelector('.ai-desc');
+                if (aiDesc) {
+                    aiDesc.textContent = prediction.condition + ' expected tomorrow with a ' + prediction.rainProbability + '% chance of rain.';
+                }
+                currentPrediction = prediction;
+
+                updateSunProgress();
+                updateAlertBanner();
+                refreshFavoriteButton();
+                if (window.renderPageDots) window.renderPageDots();
+                if (window.refreshRealNotifications) window.refreshRealNotifications();
+                lucide.createIcons();
+                hideSkeleton();
+            } catch (err) {
+                if (myToken !== renderToken) return;
+                hideSkeleton();
+                console.error('renderAll failed:', err);
+                showToast((err && err.message) || 'Unable to load weather data right now.', 'alert-triangle', true);
+                var locErrEl = document.getElementById('currentLocationText');
+                if (locErrEl) locErrEl.textContent = state.cityDisplay + ' \u2014 unable to load';
             }
-
-            updateSunProgress();
-            updateAlertBanner();
-            refreshFavoriteButton();
-            lucide.createIcons();
         }
 
         // Hourly card + 7-day row click delegation (persist selection via store)

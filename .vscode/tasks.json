@@ -1,0 +1,88 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Frontend: static server",
+      "type": "shell",
+      "command": "python",
+      "args": ["-m", "http.server", "8080", "--directory", "frontend"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "."
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Serving HTTP",
+          "endsPattern": "Serving HTTP"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "canpredict"
+      }
+    },
+    {
+      "label": "Backend: install dependencies",
+      "type": "shell",
+      "command": "pip",
+      "args": ["install", "-r", "backend/requirements.txt"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "canpredict"
+      }
+    },
+    {
+      "label": "Backend: run (uvicorn)",
+      "type": "shell",
+      "command": "uvicorn",
+      "args": ["backend.app:app", "--reload", "--port", "8000"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "." },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Started server process",
+          "endsPattern": "Application startup complete"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "canpredict"
+      }
+    },
+    {
+      "label": "Run App (single server, recommended)",
+      "type": "shell",
+      "command": "uvicorn",
+      "args": ["backend.app:app", "--reload", "--port", "8000"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "." },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Started server process",
+          "endsPattern": "Application startup complete"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "canpredict"
+      }
+    },
+    {
+      "label": "Run Backend + Frontend",
+      "dependsOn": ["Backend: run (uvicorn)", "Frontend: static server"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}

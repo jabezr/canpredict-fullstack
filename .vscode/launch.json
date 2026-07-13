@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Serves BOTH the API and the frontend (index.html etc.) on
+      // http://127.0.0.1:8000 — this alone is enough to run/debug the
+      // whole app. Set breakpoints in any backend/*.py file, then press ▶.
+      "name": "Backend: FastAPI (uvicorn)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["backend.app:app", "--reload", "--port", "8000"],
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      // Legacy two-server option (separate frontend dev server on :8080)
+      // — only needed if you specifically want the frontend on its own
+      // port. Not required otherwise; the config above already serves both.
+      "name": "Run Backend + Frontend (separate servers)",
+      "configurations": ["Backend: FastAPI (uvicorn)"],
+      "preLaunchTask": "Frontend: static server",
+      "stopAll": true
+    }
+  ]
+}

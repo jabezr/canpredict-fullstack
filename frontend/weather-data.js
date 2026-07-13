@@ -1,399 +1,122 @@
 /*!
  * weather-data.js
  * ---------------------------------------------------------------
- * Single shared source of truth for the whole app (Home, Forecast,
- * AI Prediction, Insights, Profile). Every page includes this file
- * BEFORE its own inline <script>.
+ * Single shared client for the CanPredict FastAPI backend, used by all
+ * five pages (Home, Forecast, AI Prediction, Insights, Profile).
  *
- * When a real backend (FastAPI) is ready, only the functions in the
- * "DATA GENERATION" section below need to be swapped for fetch()
- * calls that return the same shapes — nothing else in any page has
- * to change.
- * ---------------------------------------------------------------
+ * This file no longer generates synthetic weather data. Every data
+ * function below is now ASYNC (returns a Promise) because it makes a
+ * real network call to the backend, which in turn calls OpenWeather.
+ * Callers must `await` them (or use `.then()`), and should handle
+ * rejected promises (network down, backend down, city not found, etc.)
+ * with a visible error/retry state rather than assuming success.
+ *
+ * The backend URL is the ONE line to change if you deploy the API
+ * somewhere other than localhost:
  */
+var API_BASE_URL = 'http://127.0.0.1:8000';
+
 (function (global) {
     'use strict';
 
     var STORAGE_KEY = 'weatherAppStore';
+    var REQUEST_TIMEOUT_MS = 12000;
 
-    // =================================================================
-    // CITY PROFILES
-    // =================================================================
-    var CITY_PROFILES = {
-        chennai:      { display: 'Chennai, India',      baseMax: 33, baseMin: 26, climate: 'coastal',  aqiBase: 58,  favTag: 'Current Location' },
-        bangalore:    { display: 'Bangalore, India',    baseMax: 27, baseMin: 18, climate: 'temperate', aqiBase: 62 },
-        mumbai:       { display: 'Mumbai, India',       baseMax: 31, baseMin: 25, climate: 'coastal',  aqiBase: 95 },
-        delhi:        { display: 'Delhi, India',        baseMax: 36, baseMin: 24, climate: 'dry',      aqiBase: 152 },
-        hyderabad:    { display: 'Hyderabad, India',    baseMax: 29, baseMin: 21, climate: 'mixed',    aqiBase: 88 },
-        chengalpattu: { display: 'Chengalpattu, India', baseMax: 34, baseMin: 25, climate: 'coastal',  aqiBase: 55 },
-        kolkata:      { display: 'Kolkata, India',      baseMax: 32, baseMin: 26, climate: 'mixed',    aqiBase: 110 },
-        pune:         { display: 'Pune, India',         baseMax: 28, baseMin: 19, climate: 'temperate', aqiBase: 70 },
-        madurai:      { display: 'Madurai, India',      baseMax: 35, baseMin: 24, climate: 'dry',      aqiBase: 60 },
-        kochi:        { display: 'Kochi, India',        baseMax: 30, baseMin: 24, climate: 'coastal',  aqiBase: 50 },
-        jaipur:       { display: 'Jaipur, India',       baseMax: 38, baseMin: 23, climate: 'dry',      aqiBase: 130 },
-        shimla:       { display: 'Shimla, India',       baseMax: 12, baseMin: 2,  climate: 'snowy',    aqiBase: 35 }
-    };
-
-    var CLIMATE_CYCLES = {
-        coastal:   ['Partly Cloudy', 'Rain', 'Thunderstorm', 'Cloudy', 'Sunny', 'Partly Cloudy', 'Rain', 'Sunny', 'Partly Cloudy', 'Cloudy', 'Rain', 'Thunderstorm', 'Cloudy', 'Partly Cloudy', 'Sunny'],
-        temperate: ['Cloudy', 'Drizzle', 'Partly Cloudy', 'Sunny', 'Windy', 'Cloudy', 'Rain', 'Partly Cloudy', 'Sunny', 'Mist', 'Cloudy', 'Drizzle', 'Sunny', 'Partly Cloudy', 'Windy'],
-        dry:       ['Sunny', 'Sunny', 'Windy', 'Sunny', 'Partly Cloudy', 'Sunny', 'Fog', 'Sunny', 'Sunny', 'Windy', 'Sunny', 'Partly Cloudy', 'Sunny', 'Sunny', 'Fog'],
-        mixed:     ['Partly Cloudy', 'Cloudy', 'Thunderstorm', 'Rain', 'Sunny', 'Mist', 'Cloudy', 'Partly Cloudy', 'Rain', 'Sunny', 'Cloudy', 'Windy', 'Partly Cloudy', 'Thunderstorm', 'Sunny'],
-        snowy:     ['Snow', 'Cloudy', 'Snow', 'Partly Cloudy', 'Snow', 'Mist', 'Cloudy', 'Snow', 'Sunny', 'Fog', 'Snow', 'Cloudy', 'Partly Cloudy', 'Snow', 'Sunny']
-    };
-
-    var RAIN_RANGE = {
-        'Sunny': [3, 12], 'Partly Cloudy': [10, 25], 'Cloudy': [20, 40], 'Drizzle': [40, 60],
-        'Rain': [60, 80], 'Thunderstorm': [75, 95], 'Mist': [15, 30], 'Windy': [5, 20],
-        'Fog': [10, 25], 'Snow': [45, 70]
-    };
+    // A short, curated list used ONLY to power the search-suggestions
+    // dropdown UI. It is not authoritative — ANY real city name can be
+    // searched and will be resolved live by the backend's geocoding call;
+    // this list just gives the autocomplete something helpful to suggest
+    // before the user finishes typing.
+    var POPULAR_CITIES = [
+        'Chennai', 'Bangalore', 'Mumbai', 'Delhi', 'Hyderabad', 'Kolkata',
+        'Pune', 'Chengalpattu', 'Madurai', 'Kochi', 'Jaipur', 'Ahmedabad',
+        'London', 'New York', 'Tokyo', 'Singapore', 'Dubai', 'Paris',
+        'Sydney', 'Toronto'
+    ];
 
     var CONDITION_ICON = {
-        'sunny': 'icon-sunny', 'clear sky': 'icon-sunny', 'hot & dry': 'icon-sunny', 'clear': 'icon-sunny',
+        'sunny': 'icon-sunny', 'clear sky': 'icon-sunny', 'clear': 'icon-sunny',
         'partly cloudy': 'icon-partly-cloudy', 'scattered clouds': 'icon-partly-cloudy',
-        'cloudy': 'icon-cloudy', 'overcast': 'icon-cloudy',
-        'rain': 'icon-rain', 'light rain': 'icon-rain', 'showers': 'icon-rain', 'rain showers': 'icon-rain',
+        'cloudy': 'icon-cloudy', 'overcast': 'icon-cloudy', 'clouds': 'icon-cloudy',
+        'rain': 'icon-rain', 'light rain': 'icon-rain', 'showers': 'icon-rain',
         'thunderstorm': 'icon-thunder', 'thunder': 'icon-thunder', 'storm': 'icon-thunder',
         'drizzle': 'icon-drizzle',
         'snow': 'icon-snow', 'snowfall': 'icon-snow',
-        'mist': 'icon-mist', 'humid & hazy': 'icon-mist', 'haze': 'icon-mist', 'hazy': 'icon-mist',
+        'mist': 'icon-mist', 'haze': 'icon-mist', 'hazy': 'icon-mist',
         'windy': 'icon-windy', 'breezy': 'icon-windy',
         'fog': 'icon-fog', 'foggy': 'icon-fog'
     };
 
-    var CONDITION_DESC = {
-        'Sunny': 'Clear skies and bright sunshine throughout the day. Great for outdoor activities.',
-        'Partly Cloudy': 'Partly cloudy skies throughout the day. Pleasant and warm.',
-        'Cloudy': 'Overcast skies with limited sunshine. Mild temperatures expected.',
-        'Rain': 'Light to moderate showers expected on and off throughout the day. Carry an umbrella.',
-        'Thunderstorm': 'Thunderstorms likely with heavy rainfall. Stay indoors if possible.',
-        'Drizzle': 'Light drizzle throughout the day. A light jacket should be enough.',
-        'Snow': 'Snowfall expected. Roads may be slippery — dress warmly.',
-        'Mist': 'Misty conditions with reduced visibility, especially in the morning.',
-        'Windy': 'Strong, gusty winds expected throughout the day.',
-        'Fog': 'Dense fog expected, especially early morning. Drive carefully.'
-    };
-
     // =================================================================
-    // DETERMINISTIC RANDOM HELPERS
+    // NETWORK LAYER — timeout, one retry on transient failure, and
+    // normalized errors with a human-readable `.message`.
     // =================================================================
-    function seededRand(seed) {
-        var x = Math.sin(seed * 12.9898) * 43758.5453;
-        return x - Math.floor(x);
+    function buildUrl(path, params) {
+        var url = API_BASE_URL.replace(/\/$/, '') + path;
+        var query = Object.keys(params || {})
+            .filter(function (k) { return params[k] !== undefined && params[k] !== null && params[k] !== ''; })
+            .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); })
+            .join('&');
+        return query ? url + '?' + query : url;
     }
 
-    function citySeedBase(cityKey) {
-        var sum = 0;
-        for (var i = 0; i < cityKey.length; i++) sum += cityKey.charCodeAt(i) * (i + 7);
-        return sum;
-    }
+    function fetchJson(url, attemptsLeft) {
+        if (typeof attemptsLeft !== 'number') attemptsLeft = 1;
 
-    function lerp(range, t) { return range[0] + t * (range[1] - range[0]); }
+        var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        var timeoutId = controller ? setTimeout(function () { controller.abort(); }, REQUEST_TIMEOUT_MS) : null;
 
-    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-
-    function minutesToTime(totalMinutes) {
-        var m = ((totalMinutes % 1440) + 1440) % 1440;
-        var h = Math.floor(m / 60);
-        var min = Math.floor(m % 60);
-        var ampm = h >= 12 ? 'PM' : 'AM';
-        var h12 = h % 12;
-        if (h12 === 0) h12 = 12;
-        return h12 + ':' + String(min).padStart(2, '0') + ' ' + ampm;
-    }
-
-    function uvMeta(uv) {
-        if (uv >= 8) return { label: 'Very High', color: '#ff4b72' };
-        if (uv >= 6) return { label: 'High', color: '#ffa726' };
-        if (uv >= 3) return { label: 'Moderate', color: '#ffca28' };
-        return { label: 'Low', color: '#8c92c2' };
-    }
-
-    function aqiMeta(aqi) {
-        if (aqi <= 50) return { label: 'Good', color: '#00e676' };
-        if (aqi <= 100) return { label: 'Moderate', color: '#ffd600' };
-        if (aqi <= 150) return { label: 'Unhealthy (Sensitive)', color: '#ff9800' };
-        if (aqi <= 200) return { label: 'Unhealthy', color: '#ff5252' };
-        return { label: 'Hazardous', color: '#b388ff' };
-    }
-
-    function humidityMeta(h) {
-        if (h >= 80) return 'Very High';
-        if (h >= 60) return 'Moderate';
-        if (h >= 40) return 'Comfortable';
-        return 'Low';
-    }
-
-    var WIND_DIRS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-    function dayMeta(index) {
-        var d = new Date();
-        d.setDate(d.getDate() + index);
-        return {
-            label: index === 0 ? 'Today' : DAY_NAMES[d.getDay()],
-            date: MONTH_NAMES[d.getMonth()] + ' ' + String(d.getDate()).padStart(2, '0'),
-            weekday: DAY_NAMES[d.getDay()],
-            jsDate: d
-        };
-    }
-
-    // =================================================================
-    // DATA GENERATION  (swap these for API calls when a backend exists)
-    // =================================================================
-    var forecastCache = {};
-
-    function generateForecastDays(cityKey) {
-        if (forecastCache[cityKey]) return forecastCache[cityKey];
-        var profile = CITY_PROFILES[cityKey] || CITY_PROFILES.chennai;
-        var cycle = CLIMATE_CYCLES[profile.climate] || CLIMATE_CYCLES.mixed;
-        var seedBase = citySeedBase(cityKey);
-        var absMin = profile.climate === 'snowy' ? -5 : 15;
-        var absMax = profile.climate === 'snowy' ? 20 : 40;
-
-        var days = [];
-        for (var i = 0; i < 15; i++) {
-            var condition = cycle[i % cycle.length];
-            var meta = dayMeta(i);
-            var tempJitter = (seededRand(seedBase + i * 3.1) - 0.5) * 4;
-            var condOffset = condition === 'Sunny' ? 2 : (condition === 'Rain' || condition === 'Thunderstorm' || condition === 'Snow') ? -3 : 0;
-            var max = Math.round(profile.baseMax + tempJitter + condOffset);
-            var min = Math.round(profile.baseMin + tempJitter * 0.7 + condOffset * 0.6);
-            if (min >= max) min = max - 4;
-
-            var rr = RAIN_RANGE[condition] || [10, 30];
-            var rain = Math.round(lerp(rr, seededRand(seedBase + i * 5.7)));
-
-            var barLeft = clamp(Math.round((min - absMin) / (absMax - absMin) * 100), 2, 90);
-            var barRight = clamp(Math.round((absMax - max) / (absMax - absMin) * 100), 2, 90);
-
-            days.push({
-                index: i,
-                day: meta.label,
-                date: meta.date,
-                weekday: meta.weekday,
-                icon: CONDITION_ICON[condition.toLowerCase()] || 'icon-cloudy',
-                condition: condition,
-                min: min,
-                max: max,
-                rain: rain,
-                barLeft: barLeft,
-                barRight: barRight
+        return fetch(url, { signal: controller ? controller.signal : undefined })
+            .then(function (res) {
+                if (timeoutId) clearTimeout(timeoutId);
+                if (!res.ok) {
+                    return res.json().catch(function () { return {}; }).then(function (body) {
+                        var err = new Error((body && body.detail) || ('Request failed (' + res.status + ')'));
+                        err.status = res.status;
+                        throw err;
+                    });
+                }
+                return res.json();
+            })
+            .catch(function (err) {
+                if (timeoutId) clearTimeout(timeoutId);
+                var isAbort = err && err.name === 'AbortError';
+                var isNetworkDown = err instanceof TypeError; // fetch throws TypeError on network failure/CORS
+                if ((isAbort || isNetworkDown) && attemptsLeft > 0) {
+                    return fetchJson(url, attemptsLeft - 1);
+                }
+                if (isAbort) {
+                    throw new Error('The request timed out. Check that the CanPredict backend is running and reachable.');
+                }
+                if (isNetworkDown) {
+                    throw new Error('Could not reach the CanPredict backend at ' + API_BASE_URL + '. Is it running?');
+                }
+                throw err;
             });
-        }
-        forecastCache[cityKey] = days;
-        return days;
     }
 
-    function generateHourly(cityKey, dayObj) {
-        var seedBase = citySeedBase(cityKey) + dayObj.index * 101;
-        if (dayObj.index === 0) {
-            var now = new Date();
-            var labels = ['Now'];
-            var hourList = [now.getHours()];
-            for (var s = 1; s <= 6; s++) {
-                var h = (now.getHours() + s) % 24;
-                hourList.push(h);
-                var ampm = h >= 12 ? 'PM' : 'AM';
-                var h12 = h % 12; if (h12 === 0) h12 = 12;
-                labels.push(h12 + ' ' + ampm);
-            }
-            return labels.map(function (label, i) {
-                var frac = 0.3 + 0.5 * Math.sin((hourList[i] / 24) * Math.PI);
-                var temp = Math.round(dayObj.min + clamp(frac, 0, 1) * (dayObj.max - dayObj.min));
-                var jitter = Math.round((seededRand(seedBase + i * 2.3) - 0.5) * 16);
-                var rain = clamp(dayObj.rain + jitter, 0, 100);
-                var icon = i === 0 ? dayObj.icon : (rain > 55 ? (dayObj.icon === 'icon-thunder' ? 'icon-thunder' : 'icon-rain') : dayObj.icon);
-                return { time: label, icon: icon, temp: temp, rain: rain, active: i === 0 };
-            });
-        }
-        var labels2 = ['6 AM', '9 AM', '12 PM', '3 PM', '6 PM', '9 PM', '12 AM'];
-        var fracs = [0.15, 0.55, 0.9, 1.0, 0.7, 0.4, 0.2];
-        return labels2.map(function (label, i) {
-            var frac = fracs[i];
-            var temp = Math.round(dayObj.min + frac * (dayObj.max - dayObj.min));
-            var jitter = Math.round((seededRand(seedBase + i * 10.1) - 0.5) * 20);
-            var rain = clamp(dayObj.rain + jitter, 0, 100);
-            var icon = frac < 0.3 ? (dayObj.icon === 'icon-sunny' ? 'icon-partly-cloudy' : dayObj.icon) : dayObj.icon;
-            return { time: label, icon: icon, temp: temp, rain: rain, active: i === 2 };
-        });
+    function apiGet(path, params) {
+        return fetchJson(buildUrl(path, params), 1);
     }
 
-    function generateMetrics(cityKey, dayObj) {
-        var profile = CITY_PROFILES[cityKey] || CITY_PROFILES.chennai;
-        var seedBase = citySeedBase(cityKey) + dayObj.index * 7;
-        var isToday = dayObj.index === 0;
-
-        var humidityRange = { coastal: [65, 88], temperate: [45, 68], dry: [25, 45], mixed: [55, 80], snowy: [50, 75] }[profile.climate] || [50, 75];
-        var uvRange = dayObj.condition === 'Sunny' ? [8, 10] : (dayObj.condition === 'Cloudy' || dayObj.condition === 'Rain' || dayObj.condition === 'Thunderstorm' || dayObj.condition === 'Fog') ? [1, 3] : [4, 7];
-
-        var humidity = Math.round(lerp(humidityRange, seededRand(seedBase + 1)));
-        var wind = 6 + Math.round(seededRand(seedBase + 2) * (dayObj.condition === 'Windy' ? 30 : 20));
-        var windDir = WIND_DIRS[(seedBase + dayObj.index) % WIND_DIRS.length];
-        var uv = Math.round(lerp(uvRange, seededRand(seedBase + 3)));
-        var uvInfo = uvMeta(uv);
-        var pressure = 1008 + Math.round((seededRand(seedBase + 4) - 0.5) * 20);
-        var aqi = Math.round(profile.aqiBase + (seededRand(seedBase + 5) - 0.5) * 24);
-        var aqiInfo = aqiMeta(aqi);
-
-        var sunriseMinutes = 5 * 60 + 44 + citySeedBase(cityKey) % 20 - dayObj.index;
-        var sunsetMinutes = 18 * 60 + 32 - citySeedBase(cityKey) % 15 + dayObj.index;
-        var moonriseMinutes = 21 * 60 + 15 + dayObj.index * 50;
-        var moonsetMinutes = 6 * 60 + 10 + dayObj.index * 50;
-
-        var feelsOffset = dayObj.condition === 'Sunny' ? 3 : (dayObj.condition === 'Rain' || dayObj.condition === 'Thunderstorm') ? -2 : (dayObj.condition === 'Snow') ? -4 : 1;
-        var temp = isToday ? dayObj.max - 1 : dayObj.max - 1;
-
-        return {
-            temp: temp,
-            feelsLike: temp + feelsOffset,
-            humidity: humidity, humidityLabel: humidityMeta(humidity),
-            wind: wind, windDir: windDir,
-            uv: uv, uvLabel: uvInfo.label, uvColor: uvInfo.color,
-            pressure: pressure,
-            aqi: clamp(aqi, 5, 500), aqiLabel: aqiInfo.label, aqiColor: aqiInfo.color,
-            sunrise: minutesToTime(sunriseMinutes), sunset: minutesToTime(sunsetMinutes),
-            sunriseMinutes: ((sunriseMinutes % 1440) + 1440) % 1440,
-            sunsetMinutes: ((sunsetMinutes % 1440) + 1440) % 1440,
-            moonrise: minutesToTime(moonriseMinutes), moonset: minutesToTime(moonsetMinutes),
-            description: CONDITION_DESC[dayObj.condition] || 'Weather conditions expected as forecasted.'
-        };
-    }
-
-    function generatePrediction(cityKey, days) {
-        var tomorrow = days[1] || days[0];
-        var seedBase = citySeedBase(cityKey) + 999;
-        var confidence = Math.round(80 + seededRand(seedBase) * 15);
-        var rainProbability = tomorrow.rain;
-        var stormProbability = tomorrow.icon === 'icon-thunder'
-            ? Math.round(65 + seededRand(seedBase + 1) * 25)
-            : (tomorrow.icon === 'icon-rain' ? Math.round(20 + seededRand(seedBase + 1) * 25) : Math.round(seededRand(seedBase + 1) * 12));
-
-        var riskLevel = (tomorrow.icon === 'icon-thunder' || tomorrow.icon === 'icon-snow') ? 'High'
-            : (tomorrow.icon === 'icon-rain' || tomorrow.icon === 'icon-fog' || tomorrow.icon === 'icon-mist') ? 'Moderate' : 'Low';
-
-        var recommendation;
-        switch (tomorrow.icon) {
-            case 'icon-thunder': recommendation = 'Avoid outdoor activities and unplug sensitive electronics during storm hours.'; break;
-            case 'icon-rain': case 'icon-drizzle': recommendation = 'Carry an umbrella and plan outdoor activities around the rain window.'; break;
-            case 'icon-snow': recommendation = 'Dress warmly and watch for slippery roads.'; break;
-            case 'icon-fog': case 'icon-mist': recommendation = 'Drive carefully and allow extra travel time due to low visibility.'; break;
-            case 'icon-windy': recommendation = 'Secure loose outdoor items and be cautious of strong gusts.'; break;
-            case 'icon-sunny': recommendation = 'Apply sunscreen and stay hydrated if outdoors for long periods.'; break;
-            default: recommendation = 'Generally comfortable conditions expected — a normal day outdoors.';
+    // Turns a "location descriptor" (a plain city-name string, or an
+    // {lat, lon} object) into the query params the backend expects.
+    function toLocationParams(locationDescriptor) {
+        if (locationDescriptor && typeof locationDescriptor === 'object' &&
+            locationDescriptor.lat !== undefined && locationDescriptor.lon !== undefined) {
+            return { lat: locationDescriptor.lat, lon: locationDescriptor.lon };
         }
-
-        return {
-            confidence: confidence,
-            confidenceLabel: confidence >= 90 ? 'Very High' : confidence >= 75 ? 'High' : 'Moderate',
-            rainProbability: rainProbability,
-            stormProbability: clamp(stormProbability, 0, 100),
-            recommendation: recommendation,
-            riskLevel: riskLevel,
-            condition: tomorrow.condition,
-            icon: tomorrow.icon,
-            min: tomorrow.min,
-            max: tomorrow.max
-        };
-    }
-
-    function generateInsights(cityKey, dayObj, metrics) {
-        var travelAdvice, healthTip, clothingSuggestion, agricultureAdvice;
-
-        if (dayObj.icon === 'icon-thunder' || dayObj.icon === 'icon-rain' || dayObj.icon === 'icon-drizzle') {
-            travelAdvice = 'Expect delays on waterlogged routes — allow extra travel time and avoid low-lying roads.';
-            clothingSuggestion = 'Waterproof jacket or umbrella, and non-slip footwear recommended.';
-            agricultureAdvice = 'Good conditions for irrigation-free watering; hold off on pesticide spraying until rain clears.';
-        } else if (dayObj.icon === 'icon-snow') {
-            travelAdvice = 'Roads may be slippery — drive slowly and check local advisories before travelling.';
-            clothingSuggestion = 'Layer up with a warm coat, gloves, and insulated boots.';
-            agricultureAdvice = 'Protect sensitive crops from frost damage overnight.';
-        } else if (dayObj.icon === 'icon-fog' || dayObj.icon === 'icon-mist') {
-            travelAdvice = 'Reduced visibility expected in the morning — use fog lamps and drive carefully.';
-            clothingSuggestion = 'A light jacket is enough; visibility, not temperature, is the main concern today.';
-            agricultureAdvice = 'Morning mist can help retain soil moisture — good day for transplanting seedlings.';
-        } else if (dayObj.icon === 'icon-sunny') {
-            travelAdvice = 'Clear skies make for smooth travel — a great day for a road trip or outdoor errands.';
-            clothingSuggestion = 'Light, breathable cotton clothing with sunglasses and a hat.';
-            agricultureAdvice = 'Good day for harvesting; ensure adequate irrigation to offset stronger evaporation.';
-        } else if (dayObj.icon === 'icon-windy') {
-            travelAdvice = 'Two-wheeler riders should be cautious of strong crosswinds on open roads.';
-            clothingSuggestion = 'A windbreaker will keep you comfortable outdoors today.';
-            agricultureAdvice = 'Hold off on spraying pesticides — strong winds will reduce effectiveness and cause drift.';
-        } else {
-            travelAdvice = 'No major disruptions expected — normal travel conditions throughout the day.';
-            clothingSuggestion = 'Light layers work well for the mild, overcast conditions today.';
-            agricultureAdvice = 'Stable conditions — routine field activity can continue as planned.';
-        }
-
-        if (metrics.aqi > 150) {
-            healthTip = 'Air quality is poor today — sensitive groups should limit prolonged outdoor exertion.';
-        } else if (metrics.uv >= 8) {
-            healthTip = 'UV levels are very high — limit direct sun exposure between 10 AM and 4 PM.';
-        } else if (metrics.humidity >= 80) {
-            healthTip = 'High humidity may make it feel warmer than it is — stay hydrated.';
-        } else {
-            healthTip = 'Conditions are generally favorable for outdoor activity today.';
-        }
-
-        var outdoorScore = clamp(Math.round(
-            100 - dayObj.rain * 0.5 - Math.max(0, metrics.uv - 6) * 4 - Math.max(0, metrics.aqi - 80) * 0.25
-        ), 5, 98);
-
-        var uvInfo = uvMeta(metrics.uv);
-        var uvRecommendation = metrics.uv >= 8
-            ? 'Wear SPF 50+ sunscreen, sunglasses, and avoid peak sun hours.'
-            : metrics.uv >= 6
-                ? 'SPF 30+ sunscreen recommended if outdoors for extended periods.'
-                : metrics.uv >= 3
-                    ? 'Minimal protection needed for most people.'
-                    : 'No protection required today.';
-
-        return {
-            travelAdvice: travelAdvice,
-            healthTip: healthTip,
-            clothingSuggestion: clothingSuggestion,
-            agricultureAdvice: agricultureAdvice,
-            outdoorScore: outdoorScore,
-            uvRecommendation: uvRecommendation,
-            uvLabel: uvInfo.label
-        };
-    }
-
-    function getCityData(cityKey) {
-        var key = CITY_PROFILES[cityKey] ? cityKey : 'chennai';
-        var profile = CITY_PROFILES[key];
-        var days = generateForecastDays(key);
-        return { key: key, profile: profile, days: days };
+        return { city: locationDescriptor };
     }
 
     // =================================================================
-    // CITY RESOLUTION (search)
-    // =================================================================
-    function resolveCityKey(query) {
-        if (!query) return null;
-        var q = query.trim().toLowerCase();
-        if (CITY_PROFILES[q]) return q;
-        for (var key in CITY_PROFILES) {
-            if (!CITY_PROFILES.hasOwnProperty(key)) continue;
-            var display = CITY_PROFILES[key].display.toLowerCase();
-            if (display.indexOf(q) === 0 || key.indexOf(q) === 0 || display.split(',')[0] === q) {
-                return key;
-            }
-        }
-        return null;
-    }
-
-    function allCityKeys() { return Object.keys(CITY_PROFILES); }
-
-    // =================================================================
-    // STORE (persisted in localStorage — the future API swap point)
+    // STORE (persisted in localStorage)
     // =================================================================
     function defaultState() {
         return {
-            cityKey: 'chennai',
-            cityDisplay: CITY_PROFILES.chennai.display,
+            location: { type: 'city', query: 'Chennai' },
+            cityDisplay: 'Chennai',
+            country: '',
             unit: 'C',
             windUnit: 'kmh',
             theme: 'dark',
@@ -414,9 +137,7 @@
                 save(def);
                 return def;
             }
-            var parsed = JSON.parse(raw);
-            var merged = Object.assign(defaultState(), parsed);
-            return merged;
+            return Object.assign(defaultState(), JSON.parse(raw));
         } catch (e) {
             return defaultState();
         }
@@ -441,33 +162,41 @@
         return state;
     }
 
-    function setCity(cityKeyOrQuery) {
-        var key = resolveCityKey(cityKeyOrQuery) || cityKeyOrQuery;
-        if (!CITY_PROFILES[key]) return load();
-        return update(function (s) {
-            s.cityKey = key;
-            s.cityDisplay = CITY_PROFILES[key].display;
-            s.selectedDayIndex = 0;
-            s.selectedHourIndex = 0;
-            if (s.searchHistory.indexOf(CITY_PROFILES[key].display) === -1) {
-                s.searchHistory.push(CITY_PROFILES[key].display);
-                if (s.searchHistory.length > 8) s.searchHistory.shift();
-            }
+    // setCity: resolves a city name against the backend (real geocoding),
+    // then stores it as the active location. Returns a Promise<state>,
+    // rejects with a human-readable error (e.g. "City ... was not found.")
+    // if the backend/geocoding call fails.
+    function setCity(query) {
+        return apiGet('/weather/search', { city: query }).then(function (data) {
+            return update(function (s) {
+                s.location = { type: 'city', query: query };
+                s.cityDisplay = data.city;
+                s.country = data.country;
+                s.selectedDayIndex = 0;
+                s.selectedHourIndex = 0;
+                var histEntry = data.country ? (data.city + ', ' + data.country) : data.city;
+                if (s.searchHistory.indexOf(histEntry) === -1) {
+                    s.searchHistory.push(histEntry);
+                    if (s.searchHistory.length > 8) s.searchHistory.shift();
+                }
+            });
         });
     }
 
-    function setCustomLocation(display, lat, lng) {
-        // Deterministically map arbitrary coordinates onto one of our
-        // known climate profiles so "Current Location" still yields a
-        // full, consistent dataset without needing a live geocoding API.
-        var keys = allCityKeys();
-        var idx = Math.abs(Math.round((lat + lng) * 1000)) % keys.length;
-        var baseKey = keys[idx];
-        return update(function (s) {
-            s.cityKey = baseKey;
-            s.cityDisplay = display;
-            s.selectedDayIndex = 0;
-            s.selectedHourIndex = 0;
+    // setCustomLocation: resolves lat/lon via the backend's reverse
+    // geocoding (through /weather/location), then stores it as the
+    // active location. The `displayHint` param is only used as a
+    // placeholder while the request is in flight; the real city name
+    // returned by the backend always wins once it arrives.
+    function setCustomLocation(displayHint, lat, lon) {
+        return apiGet('/weather/location', { lat: lat, lon: lon }).then(function (data) {
+            return update(function (s) {
+                s.location = { type: 'coords', lat: lat, lon: lon };
+                s.cityDisplay = data.country ? (data.city + ', ' + data.country) : data.city;
+                s.country = data.country;
+                s.selectedDayIndex = 0;
+                s.selectedHourIndex = 0;
+            });
         });
     }
 
@@ -483,8 +212,6 @@
     }
 
     function toggleFavorite(cityDisplay) {
-        var state = load();
-        var idx = state.favorites.indexOf(cityDisplay);
         var added;
         update(function (s) {
             var i = s.favorites.indexOf(cityDisplay);
@@ -494,8 +221,29 @@
         return added;
     }
 
+    // Current active location as a descriptor usable by getCityData /
+    // generateHourly / generateMetrics / generatePrediction / generateInsights.
+    function currentLocationDescriptor(state) {
+        state = state || load();
+        if (state.location && state.location.type === 'coords') {
+            return { lat: state.location.lat, lon: state.location.lon };
+        }
+        return (state.location && state.location.query) || state.cityDisplay;
+    }
+
+    // Looks up a city without changing the active store selection — used
+    // to validate a name before switching, or to preview data for a
+    // different city (e.g. a favorites/search-history row).
+    function geocodeCity(query) {
+        return apiGet('/weather/search', { city: query });
+    }
+
     // =================================================================
-    // ICONS — full inline SVG <defs> covering every supported condition
+    // ICONS — unchanged from the previous version: full inline SVG
+    // <defs> covering every supported condition. The backend already
+    // returns a matching `condition_icon` id for every value it sends,
+    // so this table is mostly a fallback for any plain-text condition
+    // string that didn't come with one attached.
     // =================================================================
     var ICON_DEFS_ID = 'sharedWeatherIconDefs';
     var ICON_DEFS_MARKUP =
@@ -585,10 +333,240 @@
     }
 
     // =================================================================
-    // OVERLAY MANAGER — guarantees only one popup/modal/dropdown/sheet
-    // is ever open at a time, ESC always closes the current one, and
-    // every registered overlay gets outside-click + ESC handling for
-    // free.
+    // FORMATTING HELPERS (pure, unchanged)
+    // =================================================================
+    function uvMeta(uv) {
+        if (uv >= 8) return { label: 'Very High', color: '#ff4b72' };
+        if (uv >= 6) return { label: 'High', color: '#ffa726' };
+        if (uv >= 3) return { label: 'Moderate', color: '#ffca28' };
+        return { label: 'Low', color: '#8c92c2' };
+    }
+
+    function aqiMeta(aqi) {
+        if (aqi <= 50) return { label: 'Good', color: '#00e676' };
+        if (aqi <= 100) return { label: 'Moderate', color: '#ffd600' };
+        if (aqi <= 150) return { label: 'Unhealthy (Sensitive)', color: '#ff9800' };
+        if (aqi <= 200) return { label: 'Unhealthy', color: '#ff5252' };
+        return { label: 'Hazardous', color: '#b388ff' };
+    }
+
+    function humidityMeta(h) {
+        if (h >= 80) return 'Very High';
+        if (h >= 60) return 'Moderate';
+        if (h >= 40) return 'Comfortable';
+        return 'Low';
+    }
+
+    function cToF(c) { return Math.round((c * 9) / 5 + 32); }
+
+    function convertWind(kmh, unit) {
+        return unit === 'mph' ? Math.round(kmh * 0.621371) : Math.round(kmh);
+    }
+
+    function formatTemp(celsius, unit) {
+        return (unit === 'F' ? cToF(celsius) : Math.round(celsius)) + String.fromCharCode(176);
+    }
+
+    // =================================================================
+    // DATA FUNCTIONS — every one of these hits the backend. They keep
+    // the exact field names the frontend render functions already
+    // expect, so only the call sites (not the rendering code that reads
+    // the results) needed to change from sync to async.
+    // =================================================================
+    var ABS_MIN_C = 0, ABS_MAX_C = 45; // used only for the 7-day temp bar visualization
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    function dayFromApiItem(apiDay, index) {
+        var barLeft = clamp(Math.round((apiDay.temp_min - ABS_MIN_C) / (ABS_MAX_C - ABS_MIN_C) * 100), 2, 90);
+        var barRight = clamp(Math.round((ABS_MAX_C - apiDay.temp_max) / (ABS_MAX_C - ABS_MIN_C) * 100), 2, 90);
+        return {
+            index: index,
+            day: apiDay.day_label,
+            date: apiDay.date,
+            icon: apiDay.condition_icon,
+            condition: apiDay.condition,
+            min: apiDay.temp_min,
+            max: apiDay.temp_max,
+            feelsLike: apiDay.feels_like,
+            rain: apiDay.rain_probability,
+            humidity: apiDay.humidity,
+            wind: apiDay.wind_speed,
+            windDir: apiDay.wind_direction,
+            pressure: apiDay.pressure,
+            uv: apiDay.uv_index,
+            uvLabel: apiDay.uv_label,
+            cloudCover: apiDay.cloud_cover,
+            sunrise: apiDay.sunrise,
+            sunset: apiDay.sunset,
+            moonrise: apiDay.moonrise,
+            moonset: apiDay.moonset,
+            barLeft: barLeft,
+            barRight: barRight
+        };
+    }
+
+    // getCityData(locationDescriptor) -> Promise<{ key, profile: {display, country}, days: [...] }>
+    function getCityData(locationDescriptor) {
+        var params = Object.assign({ days: 7 }, toLocationParams(locationDescriptor));
+        return apiGet('/weather/daily', params).then(function (data) {
+            var days = data.daily.map(dayFromApiItem);
+            return {
+                key: data.city,
+                profile: { display: data.city, country: data.country },
+                days: days
+            };
+        });
+    }
+
+    // generateHourly(locationDescriptor, dayObj) -> Promise<hourlyArray>
+    // Real hourly data only exists ~48h out. For a selected day beyond
+    // that horizon, we fall back to a smooth interpolation between that
+    // day's own (real) min/max/condition — clearly a lower-fidelity
+    // approximation, not synthetic city data.
+    function generateHourly(locationDescriptor, dayObj) {
+        if (dayObj.index > 1) {
+            return Promise.resolve(approximateHourlyFromDay(dayObj));
+        }
+        var params = Object.assign({ hours: 48 }, toLocationParams(locationDescriptor));
+        return apiGet('/weather/hourly', params).then(function (data) {
+            var matching = data.hourly.filter(function (h) { return h.date === dayObj.date; });
+            if (!matching.length) {
+                return approximateHourlyFromDay(dayObj);
+            }
+            var isToday = dayObj.index === 0;
+            return matching.slice(0, 8).map(function (h, i) {
+                return {
+                    time: (isToday && i === 0) ? 'Now' : h.time,
+                    icon: h.condition_icon,
+                    temp: Math.round(h.temperature),
+                    rain: h.rain_probability,
+                    active: i === 0
+                };
+            });
+        });
+    }
+
+    function approximateHourlyFromDay(dayObj) {
+        var labels = ['6 AM', '9 AM', '12 PM', '3 PM', '6 PM', '9 PM', '12 AM'];
+        var fracs = [0.15, 0.55, 0.9, 1.0, 0.7, 0.4, 0.2];
+        return labels.map(function (label, i) {
+            var temp = Math.round(dayObj.min + fracs[i] * (dayObj.max - dayObj.min));
+            return { time: label, icon: dayObj.icon, temp: temp, rain: dayObj.rain, active: i === 2 };
+        });
+    }
+
+    // generateMetrics(locationDescriptor, dayObj) -> Promise<metricsObj>
+    // "Today" (index 0) always fetches the precise, real-time current
+    // reading (including real AQI). Any other selected day is built from
+    // the already-fetched daily forecast item (see dayFromApiItem above)
+    // plus TODAY's most recently observed AQI as a reasonable same-region
+    // proxy — OpenWeather's free tier does not provide a multi-day AQI
+    // forecast, so a multi-day-ahead AQI number would otherwise have to
+    // be invented rather than measured.
+    var lastKnownAqi = null; // { aqi, label, color } cached from the last /weather/current call
+
+    function generateMetrics(locationDescriptor, dayObj) {
+        if (dayObj.index === 0) {
+            var params = toLocationParams(locationDescriptor);
+            return apiGet('/weather/current', params).then(function (c) {
+                var uv = uvMeta(c.uv_index);
+                var aqi = aqiMeta(c.air_quality.aqi);
+                lastKnownAqi = { aqi: c.air_quality.aqi, label: c.air_quality.label, color: aqi.color };
+                return {
+                    temp: c.temperature,
+                    feelsLike: c.feels_like,
+                    humidity: c.humidity, humidityLabel: humidityMeta(c.humidity),
+                    wind: c.wind_speed, windDir: c.wind_direction,
+                    uv: c.uv_index, uvLabel: c.uv_label, uvColor: uv.color,
+                    pressure: c.pressure,
+                    aqi: c.air_quality.aqi, aqiLabel: c.air_quality.label, aqiColor: aqi.color,
+                    sunrise: c.sunrise, sunset: c.sunset,
+                    moonrise: c.moonrise, moonset: c.moonset,
+                    sunriseMinutes: timeStringToMinutes(c.sunrise),
+                    sunsetMinutes: timeStringToMinutes(c.sunset),
+                    description: c.condition + ', feels like ' + Math.round(c.feels_like) + '\u00b0.'
+                };
+            });
+        }
+
+        var uvM = uvMeta(dayObj.uv);
+        var aqiFallback = lastKnownAqi || { aqi: 50, label: 'Good', color: aqiMeta(50).color };
+        return Promise.resolve({
+            temp: Math.round((dayObj.min + dayObj.max) / 2),
+            feelsLike: dayObj.feelsLike,
+            humidity: dayObj.humidity, humidityLabel: humidityMeta(dayObj.humidity),
+            wind: dayObj.wind, windDir: dayObj.windDir,
+            uv: dayObj.uv, uvLabel: dayObj.uvLabel, uvColor: uvM.color,
+            pressure: dayObj.pressure,
+            aqi: aqiFallback.aqi, aqiLabel: aqiFallback.label + ' (from today)', aqiColor: aqiFallback.color,
+            sunrise: dayObj.sunrise, sunset: dayObj.sunset,
+            moonrise: dayObj.moonrise, moonset: dayObj.moonset,
+            sunriseMinutes: timeStringToMinutes(dayObj.sunrise),
+            sunsetMinutes: timeStringToMinutes(dayObj.sunset),
+            description: dayObj.condition + ' expected, ' + dayObj.min + '\u00b0\u2013' + dayObj.max + '\u00b0.'
+        });
+    }
+
+    function timeStringToMinutes(timeStr) {
+        // "5:58 AM" -> minutes since midnight. Defensive against "--".
+        var m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec((timeStr || '').trim());
+        if (!m) return 360; // sane default (6:00 AM) if unparseable
+        var h = parseInt(m[1], 10) % 12;
+        var min = parseInt(m[2], 10);
+        if (/pm/i.test(m[3])) h += 12;
+        return h * 60 + min;
+    }
+
+    // generatePrediction(locationDescriptor, days) -> Promise<predictionObj>
+    // `days` (the already-fetched daily array) is accepted for API-shape
+    // compatibility but not required — the backend derives tomorrow's
+    // prediction itself from a fresh forecast lookup.
+    function generatePrediction(locationDescriptor) {
+        var params = toLocationParams(locationDescriptor);
+        return apiGet('/prediction', params).then(function (p) {
+            return {
+                confidence: p.confidence,
+                confidenceLabel: p.confidence_label,
+                rainProbability: p.rain_probability,
+                stormProbability: p.storm_probability,
+                recommendation: p.recommendation,
+                riskLevel: p.risk_level,
+                condition: p.condition,
+                icon: p.condition_icon,
+                min: p.temp_min,
+                max: p.temp_max
+            };
+        });
+    }
+
+    // generateInsights(locationDescriptor, dayObj, metrics) -> Promise<insightsObj>
+    function generateInsights(locationDescriptor) {
+        var params = toLocationParams(locationDescriptor);
+        return apiGet('/weather/insights', params).then(function (r) {
+            return {
+                travelAdvice: r.travel_advice,
+                healthTip: r.health_tip,
+                clothingSuggestion: r.clothing_suggestion,
+                agricultureAdvice: r.agriculture_advice,
+                outdoorScore: r.outdoor_score,
+                uvRecommendation: r.uv_recommendation,
+                uvLabel: r.uv_label,
+                aqi: r.aqi,
+                aqiLabel: r.aqi_label,
+                pressure: r.pressure,
+                visibility: r.visibility,
+                wind: r.wind_speed,
+                windDir: r.wind_direction,
+                humidity: r.humidity,
+                cloudCover: r.cloud_cover,
+                dewPoint: r.dew_point
+            };
+        });
+    }
+
+    // =================================================================
+    // OVERLAY MANAGER — unchanged (no data dependency).
     // =================================================================
     var overlayRegistry = {};
     var overlayStack = [];
@@ -643,35 +621,25 @@
     }
 
     // =================================================================
-    // MISC HELPERS reused by page scripts
-    // =================================================================
-    function cToF(c) { return Math.round((c * 9) / 5 + 32); }
-
-    function convertWind(kmh, unit) {
-        return unit === 'mph' ? Math.round(kmh * 0.621371) : Math.round(kmh);
-    }
-
-    function formatTemp(celsius, unit) {
-        return (unit === 'F' ? cToF(celsius) : Math.round(celsius)) + String.fromCharCode(176);
-    }
-
-    // =================================================================
     // PUBLIC API
     // =================================================================
     global.WeatherApp = {
-        CITY_PROFILES: CITY_PROFILES,
-        allCityKeys: allCityKeys,
-        resolveCityKey: resolveCityKey,
+        API_BASE_URL: API_BASE_URL,
+        POPULAR_CITIES: POPULAR_CITIES,
+
         getCityData: getCityData,
         generateHourly: generateHourly,
         generateMetrics: generateMetrics,
         generatePrediction: generatePrediction,
         generateInsights: generateInsights,
+        geocodeCity: geocodeCity,
+
         uvMeta: uvMeta,
         aqiMeta: aqiMeta,
         cToF: cToF,
         convertWind: convertWind,
         formatTemp: formatTemp,
+
         icons: {
             ensureDefs: ensureIconDefs,
             markup: iconMarkup,
@@ -686,6 +654,7 @@
             setSelectedDay: setSelectedDay,
             setSelectedHour: setSelectedHour,
             toggleFavorite: toggleFavorite,
+            currentLocationDescriptor: currentLocationDescriptor,
             defaultState: defaultState
         },
         overlay: {

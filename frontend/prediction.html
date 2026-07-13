@@ -576,6 +576,22 @@
                 border: none;
             }
         }
+
+        /* Info popover for the dashboard header's info button */
+        .info-popover {
+            position: absolute;
+            top: 64px;
+            right: 16px;
+            left: 16px;
+            z-index: 480;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-8px);
+            transition: opacity 0.25s ease, transform 0.25s ease;
+        }
+        .info-popover.active { opacity: 1; pointer-events: auto; transform: translateY(0); }
+        .info-popover .card { font-size: 12px; color: var(--text-sub); line-height: 1.5; }
+        .info-popover .card strong { color: #fff; }
     </style>
 </head>
 <body>
@@ -598,8 +614,15 @@
             <header class="top-bar">
                 <div class="btn-circle" onclick="goBackFromDashboard()"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></div>
                 <div class="header-title">AI Weather Prediction</div>
-                <div class="btn-circle"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></div>
+                <div class="btn-circle" id="predictionInfoBtn"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></div>
             </header>
+
+            <div class="info-popover" id="predictionInfoPopover">
+                <div class="card">
+                    <strong>How this prediction works</strong>
+                    <p style="margin-top:6px;">Confidence and risk are derived from tomorrow's forecast conditions (rain chance, storm likelihood, wind, and humidity) for your selected city. Higher confidence means the underlying signals point more consistently to the same outcome.</p>
+                </div>
+            </div>
 
             <!-- Card 1: Main Confidence & Rainfall Analytics Engine Block -->
             <div class="card">
@@ -1015,12 +1038,8 @@
         WeatherApp.overlay.bindEsc();
 
         var storeState = WeatherApp.store.load();
-        var cityData = WeatherApp.getCityData(storeState.cityKey);
-        var todayObj = cityData.days[0];
-        var todayMetrics = WeatherApp.generateMetrics(cityData.key, todayObj);
-        var prediction = WeatherApp.generatePrediction(cityData.key, cityData.days);
-        var tomorrowObj = cityData.days[1] || cityData.days[0];
-        var tomorrowMetrics = WeatherApp.generateMetrics(cityData.key, tomorrowObj);
+        var locationDescriptor = WeatherApp.store.currentLocationDescriptor(storeState);
+        var cityData, todayObj, todayMetrics, prediction, tomorrowObj, tomorrowMetrics;
 
         function riskColor(level) {
             return level === 'High' ? '#ff5252' : level === 'Moderate' ? '#ffaa00' : '#3bf0ff';
@@ -1170,7 +1189,39 @@
             if (carrySunglasses) carrySunglasses.textContent = tomorrowObj.icon === 'icon-sunny' ? 'Highly Recommended' : 'Optional';
         }
 
-        renderPrediction();
+        function showPredictionLoadError(message) {
+            var container = document.querySelector('.scrollable-content') || document.body;
+            var box = document.createElement('div');
+            box.style.cssText = 'margin:16px;padding:20px;text-align:center;background:rgba(15,18,44,0.9);border:1px solid rgba(255,255,255,0.08);border-radius:16px;color:var(--text-sub,#7f85b2);font-size:12px;';
+            box.innerHTML = '<div style="margin-bottom:10px;">' + message + '</div>' +
+                '<button id="predictionRetryBtn" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 16px;border-radius:10px;font-size:12px;cursor:pointer;">Retry</button>';
+            container.insertBefore(box, container.firstChild);
+            var retryBtn = document.getElementById('predictionRetryBtn');
+            if (retryBtn) retryBtn.addEventListener('click', function () { box.remove(); bootstrapPrediction(); });
+        }
+
+        function bootstrapPrediction() {
+            WeatherApp.getCityData(locationDescriptor).then(function (data) {
+                cityData = data;
+                todayObj = cityData.days[0];
+                tomorrowObj = cityData.days[1] || cityData.days[0];
+                return Promise.all([
+                    WeatherApp.generateMetrics(locationDescriptor, todayObj),
+                    WeatherApp.generatePrediction(locationDescriptor),
+                    WeatherApp.generateMetrics(locationDescriptor, tomorrowObj)
+                ]);
+            }).then(function (results) {
+                todayMetrics = results[0];
+                prediction = results[1];
+                tomorrowMetrics = results[2];
+                renderPrediction();
+            }).catch(function (err) {
+                console.error('Prediction load failed:', err);
+                showPredictionLoadError((err && err.message) || 'Unable to load the AI prediction right now.');
+            });
+        }
+
+        bootstrapPrediction();
 
         (function () {
             const modal = document.getElementById('miniModalOverlay');
@@ -1245,6 +1296,39 @@
         document.querySelectorAll('.dock-nav [data-page]').forEach(function (el) {
             el.addEventListener('click', function () { window.location.href = el.dataset.page; });
         });
+
+        // ==========================================================
+        // Dashboard info button (was previously wired to nothing)
+        // ==========================================================
+        (function () {
+            var infoBtn = document.getElementById('predictionInfoBtn');
+            var infoPopover = document.getElementById('predictionInfoPopover');
+            if (!infoBtn || !infoPopover) return;
+
+            function closeInfo() {
+                infoPopover.classList.remove('active');
+                WeatherApp.overlay.closed('predictionInfo');
+            }
+            function openInfo() {
+                WeatherApp.overlay.closeAllExcept('predictionInfo');
+                infoPopover.classList.add('active');
+                WeatherApp.overlay.opened('predictionInfo');
+            }
+
+            WeatherApp.overlay.register('predictionInfo', closeInfo);
+
+            infoBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                infoPopover.classList.contains('active') ? closeInfo() : openInfo();
+            });
+            document.addEventListener('click', function (e) {
+                if (infoPopover.classList.contains('active') &&
+                    !e.target.closest('#predictionInfoPopover') &&
+                    !e.target.closest('#predictionInfoBtn')) {
+                    closeInfo();
+                }
+            });
+        })();
     </script>
 </body>
 </html>

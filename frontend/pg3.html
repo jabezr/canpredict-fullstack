@@ -704,11 +704,11 @@
         WeatherApp.icons.ensureDefs();
 
         var storeState = WeatherApp.store.load();
-        var cityData = WeatherApp.getCityData(storeState.cityKey);
-        var dayIndex = Math.max(0, Math.min(cityData.days.length - 1, storeState.selectedDayIndex || 0));
-        var dayObj = cityData.days[dayIndex];
-        var metrics = WeatherApp.generateMetrics(cityData.key, dayObj);
-        var insights = WeatherApp.generateInsights(cityData.key, dayObj, metrics);
+        var locationDescriptor = WeatherApp.store.currentLocationDescriptor(storeState);
+        var cityData = null;
+        var dayObj = null;
+        var metrics = null;
+        var insights = null;
 
         function setText(id, text) {
             var el = document.getElementById(id);
@@ -721,7 +721,7 @@
             // AQI hero card
             setText('aqiVal', metrics.aqi);
             setText('aqiStatus', metrics.aqiLabel);
-            var aqiDescText = metrics.aqi <= 50 ? 'Air quality is good — enjoy outdoor activities.'
+            var aqiDescText = metrics.aqi <= 50 ? 'Air quality is good \u2014 enjoy outdoor activities.'
                 : metrics.aqi <= 100 ? 'Air quality is acceptable for most people.'
                 : 'Air quality is unhealthy for sensitive groups today.';
             setText('aqiDesc', aqiDescText);
@@ -758,16 +758,15 @@
             var pressureLbl = metrics.pressure > 1015 ? 'High' : metrics.pressure < 1005 ? 'Low' : 'Stable';
             setText('scPressureLbl', pressureLbl);
 
-            // Visibility (derived from condition — fog/mist reduce it sharply)
-            var visibilityKm = (dayObj.icon === 'icon-fog') ? 1 : (dayObj.icon === 'icon-mist') ? 3 : (dayObj.icon === 'icon-rain' || dayObj.icon === 'icon-thunder') ? 6 : 10;
+            // Visibility — real reading from the backend, not guessed
+            var visibilityKm = Math.round(insights.visibility);
             var visibilityLbl = visibilityKm <= 2 ? 'Poor' : visibilityKm <= 5 ? 'Moderate' : 'Excellent';
             setText('scVisibilityVal', visibilityKm);
             setText('scVisibilityLbl', visibilityLbl);
             setText('scVisibilityDesc', visibilityKm <= 5 ? 'Reduced visibility today' : 'Clear visibility');
 
-            // Dew point (approximation from temp + humidity)
-            var dewPoint = Math.round(metrics.temp - ((100 - metrics.humidity) / 5));
-            setText('scDewVal', dewPoint + '\u00b0');
+            // Dew point — real reading from the backend
+            setText('scDewVal', Math.round(insights.dewPoint) + '\u00b0');
             setText('scDewLbl', metrics.humidity >= 70 ? 'Sticky' : 'Comfortable');
             setText('scDewDesc', insights.agricultureAdvice);
 
@@ -784,7 +783,37 @@
             lucide.createIcons();
         }
 
-        renderInsights();
+        function showLoadError(message) {
+            var container = document.querySelector('.scrollable-content') || document.body;
+            var box = document.createElement('div');
+            box.style.cssText = 'margin:16px;padding:20px;text-align:center;background:rgba(15,18,44,0.9);border:1px solid rgba(255,255,255,0.08);border-radius:16px;color:var(--text-secondary,#8c92c2);font-size:12px;';
+            box.innerHTML = '<div style="margin-bottom:10px;">' + message + '</div>' +
+                '<button id="insightsRetryBtn" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 16px;border-radius:10px;font-size:12px;cursor:pointer;">Retry</button>';
+            container.insertBefore(box, container.firstChild);
+            var retryBtn = document.getElementById('insightsRetryBtn');
+            if (retryBtn) retryBtn.addEventListener('click', function () { box.remove(); bootstrap(); });
+        }
+
+        function bootstrap() {
+            WeatherApp.getCityData(locationDescriptor).then(function (data) {
+                cityData = data;
+                var dayIndex = Math.max(0, Math.min(cityData.days.length - 1, storeState.selectedDayIndex || 0));
+                dayObj = cityData.days[dayIndex];
+                return Promise.all([
+                    WeatherApp.generateMetrics(locationDescriptor, dayObj),
+                    WeatherApp.generateInsights(locationDescriptor)
+                ]);
+            }).then(function (results) {
+                metrics = results[0];
+                insights = results[1];
+                renderInsights();
+            }).catch(function (err) {
+                console.error('Insights load failed:', err);
+                showLoadError((err && err.message) || 'Unable to load insights right now.');
+            });
+        }
+
+        bootstrap();
 
         // ==========================================================
         // BOTTOM DOCK NAVIGATION

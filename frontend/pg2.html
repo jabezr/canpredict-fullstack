@@ -461,7 +461,7 @@
             <header class="top-bar">
                 <div class="btn-circle" onclick="window.location.href='index.html'"><i data-lucide="arrow-left" style="width: 20px;"></i></div>
                 <div class="header-title" id="headerTitle">7-Day Forecast</div>
-                <div class="btn-circle"><i data-lucide="share" style="width: 18px;"></i></div>
+                <div class="btn-circle" id="shareForecastBtn"><i data-lucide="share" style="width: 18px;"></i></div>
             </header>
 
             <!-- Toggle Segment -->
@@ -593,11 +593,14 @@
     <script>
         WeatherApp.icons.ensureDefs();
 
-        // App state — restored from and persisted back into the shared store
+        // App state — restored from and persisted back into the shared store.
+        // cityData/currentMode/selectedIndex are populated once the initial
+        // async fetch (bottom of this file) resolves.
         var storeState = WeatherApp.store.load();
-        var cityData = WeatherApp.getCityData(storeState.cityKey);
+        var locationDescriptor = WeatherApp.store.currentLocationDescriptor(storeState);
+        var cityData = null;
         var currentMode = storeState.forecastMode || '7';
-        var selectedIndex = Math.max(0, Math.min(cityData.days.length - 1, storeState.selectedDayIndex || 0));
+        var selectedIndex = storeState.selectedDayIndex || 0;
 
         function refreshIcons() {
             if (window.lucide && typeof lucide.createIcons === 'function') {
@@ -632,10 +635,15 @@
         }
 
         function renderForecast(mode) {
-            const count = mode === '7' ? 7 : 15;
+            const requested = mode === '7' ? 7 : 15;
+            const count = Math.min(requested, cityData.days.length);
             const list = cityData.days.slice(0, count);
             const rowsEl = document.getElementById('forecastRows');
             rowsEl.innerHTML = list.map((d) => buildRowHTML(d)).join('');
+            if (mode === '15' && cityData.days.length < 15) {
+                rowsEl.innerHTML += '<div style="text-align:center;padding:14px;font-size:11px;color:var(--text-secondary,#8c92c2);">' +
+                    'Extended forecast beyond ' + cityData.days.length + ' days is not available from the current weather provider.</div>';
+            }
             highlightSelectedRow();
             refreshIcons();
         }
@@ -683,22 +691,32 @@
             refreshIcons();
         }
 
-        function updateDetailCard(idx, instant) {
+        async function updateDetailCard(idx, instant) {
             const dayObj = cityData.days[idx];
-            const metrics = WeatherApp.generateMetrics(cityData.key, dayObj);
-            const hourly = WeatherApp.generateHourly(cityData.key, dayObj);
             const content = document.getElementById('detailContent');
 
-            if (instant) {
-                applyDetail(dayObj, metrics, hourly);
-                return;
-            }
+            try {
+                const results = await Promise.all([
+                    WeatherApp.generateMetrics(locationDescriptor, dayObj),
+                    WeatherApp.generateHourly(locationDescriptor, dayObj)
+                ]);
+                const metrics = results[0];
+                const hourly = results[1];
 
-            content.classList.add('fade-hidden');
-            setTimeout(() => {
-                applyDetail(dayObj, metrics, hourly);
-                content.classList.remove('fade-hidden');
-            }, 200);
+                if (instant) {
+                    applyDetail(dayObj, metrics, hourly);
+                    return;
+                }
+
+                content.classList.add('fade-hidden');
+                setTimeout(() => {
+                    applyDetail(dayObj, metrics, hourly);
+                    content.classList.remove('fade-hidden');
+                }, 200);
+            } catch (err) {
+                console.error('updateDetailCard failed:', err);
+                miniToast((err && err.message) || 'Unable to load details for this day.', true);
+            }
         }
 
         // ==========================================================
@@ -748,6 +766,47 @@
         document.getElementById('toggle15Btn').addEventListener('click', () => switchForecastMode('15'));
 
         // ==========================================================
+        // SHARE FORECAST
+        // ==========================================================
+        function miniToast(message, isError) {
+            var el = document.createElement('div');
+            el.textContent = message;
+            el.style.cssText = 'position:absolute;left:16px;right:16px;bottom:100px;z-index:600;' +
+                'background:rgba(15,18,44,0.94);border:1px solid rgba(255,255,255,0.08);' +
+                'border-radius:14px;padding:12px 14px;font-size:12px;color:#fff;text-align:center;' +
+                'backdrop-filter:blur(20px);box-shadow:0 14px 30px rgba(0,0,0,0.5);' +
+                (isError ? 'color:#ff6b8a;' : '');
+            document.querySelector('.app-window').appendChild(el);
+            setTimeout(function () { el.remove(); }, 2800);
+        }
+
+        var shareForecastBtn = document.getElementById('shareForecastBtn');
+        if (shareForecastBtn) {
+            shareForecastBtn.addEventListener('click', function () {
+                var dayObj = cityData.days[selectedIndex];
+                WeatherApp.generateMetrics(locationDescriptor, dayObj).then(function (metrics) {
+                    var text = storeState.cityDisplay + ': ' + WeatherApp.formatTemp(dayObj.max, storeState.unit) + ' / ' +
+                        WeatherApp.formatTemp(dayObj.min, storeState.unit) + ', ' + dayObj.condition +
+                        ' (feels like ' + WeatherApp.formatTemp(metrics.feelsLike, storeState.unit) + ') \u2014 via CanPredict';
+
+                    if (navigator.share) {
+                        navigator.share({ title: 'CanPredict Weather', text: text }).catch(function () { /* user cancelled */ });
+                    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(text).then(function () {
+                            miniToast('Forecast copied to clipboard');
+                        }).catch(function () {
+                            miniToast('Unable to copy forecast', true);
+                        });
+                    } else {
+                        miniToast('Sharing is not supported on this browser', true);
+                    }
+                }).catch(function (err) {
+                    miniToast((err && err.message) || 'Unable to build a shareable forecast right now.', true);
+                });
+            });
+        }
+
+        // ==========================================================
         // BOTTOM DOCK NAVIGATION
         // ==========================================================
         document.querySelectorAll('.dock-nav [data-page]').forEach((el) => {
@@ -755,13 +814,39 @@
         });
 
         // ==========================================================
-        // INITIAL RENDER (reflects whatever Home last selected)
+        // INITIAL RENDER (reflects whatever Home last selected) — fetches
+        // the real 7/8-day forecast from the backend before rendering
+        // anything. Shows an inline error + retry if that fetch fails.
         // ==========================================================
-        document.getElementById('toggle7Btn').classList.toggle('active', currentMode === '7');
-        document.getElementById('toggle15Btn').classList.toggle('active', currentMode === '15');
-        document.getElementById('headerTitle').textContent = currentMode === '7' ? '7-Day Forecast' : '15-Day Forecast';
-        renderForecast(currentMode);
-        updateDetailCard(selectedIndex, true);
+        function showInitialLoadError(message) {
+            var rowsEl = document.getElementById('forecastRows');
+            if (rowsEl) {
+                rowsEl.innerHTML = '<div style="text-align:center;padding:30px 16px;color:var(--text-secondary,#8c92c2);font-size:12px;">' +
+                    '<div style="margin-bottom:10px;">' + message + '</div>' +
+                    '<button id="retryLoadBtn" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:8px 16px;border-radius:10px;font-size:12px;cursor:pointer;">Retry</button>' +
+                '</div>';
+                var retryBtn = document.getElementById('retryLoadBtn');
+                if (retryBtn) retryBtn.addEventListener('click', bootstrap);
+            }
+        }
+
+        function bootstrap() {
+            document.getElementById('toggle7Btn').classList.toggle('active', currentMode === '7');
+            document.getElementById('toggle15Btn').classList.toggle('active', currentMode === '15');
+            document.getElementById('headerTitle').textContent = currentMode === '7' ? '7-Day Forecast' : '15-Day Forecast';
+
+            WeatherApp.getCityData(locationDescriptor).then(function (data) {
+                cityData = data;
+                selectedIndex = Math.max(0, Math.min(cityData.days.length - 1, selectedIndex));
+                renderForecast(currentMode);
+                return updateDetailCard(selectedIndex, true);
+            }).catch(function (err) {
+                console.error('Initial forecast load failed:', err);
+                showInitialLoadError((err && err.message) || 'Unable to load the forecast right now.');
+            });
+        }
+
+        bootstrap();
 
         // Init vector icons (retry until the Lucide library has fully attached,
         // so no icon is silently skipped if the CDN script finishes late)
