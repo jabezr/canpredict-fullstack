@@ -11,10 +11,22 @@
  * rejected promises (network down, backend down, city not found, etc.)
  * with a visible error/retry state rather than assuming success.
  *
- * The backend URL is the ONE line to change if you deploy the API
- * somewhere other than localhost:
+ * The backend URL is auto-detected from the page's own address, since
+ * backend/app.py serves this frontend and the API from the SAME origin.
+ * This is what makes the app work unmodified whether you open it as
+ * localhost, 127.0.0.1, your PC's LAN IP (e.g. from a phone on the same
+ * WiFi), or a real deployed domain later — 127.0.0.1 means a different
+ * device depending on who's asking, so hardcoding it would only work on
+ * the machine running the server itself.
+ *
+ * Only override this if you deliberately run the frontend on its OWN
+ * separate dev server (different port than the backend) — see
+ * backend/README.md §4, "Option B".
  */
-var API_BASE_URL = 'http://127.0.0.1:8000';
+var API_BASE_URL = (function () {
+    var isHttp = window.location.protocol === 'http:' || window.location.protocol === 'https:';
+    return isHttp ? window.location.origin : 'http://127.0.0.1:8000';
+})();
 
 (function (global) {
     'use strict';

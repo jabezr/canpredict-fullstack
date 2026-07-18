@@ -226,16 +226,21 @@ the `<script>` sections that consumed `WeatherApp.*` were updated to
 `await` the now-async functions (fetching real data is inherently
 asynchronous, whereas the old synthetic generator was instant/synchronous).
 
-**Set the backend URL** at the top of `weather-data.js`:
+**Set the backend URL** — no need to, actually. The top of `weather-data.js`
+now auto-detects it from the page's own address:
 
 ```js
-var API_BASE_URL = 'http://127.0.0.1:8000';
+var API_BASE_URL = (function () {
+    var isHttp = window.location.protocol === 'http:' || window.location.protocol === 'https:';
+    return isHttp ? window.location.origin : 'http://127.0.0.1:8000';
+})();
 ```
 
 **Option A — single server (recommended):** `app.py` mounts `frontend/`
 as static files on the same port as the API, so you only need to run
 uvicorn — no separate frontend server, no second port, no CORS to worry
-about (same-origin requests don't need it):
+about (same-origin requests don't need it), and the frontend correctly
+finds the backend no matter what address you load the page from:
 
 ```bash
 uvicorn backend.app:app --reload
@@ -245,8 +250,29 @@ then open `http://127.0.0.1:8000/` — that's it, this serves `index.html`
 directly. `http://127.0.0.1:8000/pg2.html`, `/pg3.html`, etc. all work the
 same way.
 
+**Accessing it from your phone / another device on the same WiFi:** since
+the auto-detected URL just mirrors whatever address loaded the page, this
+works automatically too — you only need the server reachable beyond your
+own machine:
+
+```bash
+uvicorn backend.app:app --reload --host 0.0.0.0
+```
+
+Find your PC's LAN IP (Windows: `ipconfig`, look for "IPv4 Address" under
+your active adapter, e.g. `192.168.1.42`; Mac/Linux: `ifconfig` or `ip a`),
+then on your phone (same WiFi network) open `http://<that-IP>:8000/` —
+e.g. `http://192.168.1.42:8000/`. If it doesn't connect, your OS firewall
+is almost certainly blocking incoming connections on port 8000 — on
+Windows you'll usually get a popup asking to allow it the first time you
+run with `--host 0.0.0.0`; say yes, or add the rule manually via Windows
+Defender Firewall → Allow an app through firewall.
+
 **Option B — two separate servers**, e.g. if you want frontend
-live-reload tooling independent of the backend:
+live-reload tooling independent of the backend. Since the frontend would
+then be on a different port than the backend, auto-detection no longer
+applies — **manually set `API_BASE_URL`** at the top of `weather-data.js`
+to the backend's actual address first:
 
 ```bash
 cd frontend
